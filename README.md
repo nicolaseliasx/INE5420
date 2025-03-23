@@ -30,7 +30,17 @@ cd sistema-grafico
 poetry install
 ```
 
+3. Como executar:
+
+```
+poetry run python grapgics_system.py
+```
+
+Examples:
+
+```
 (10,10) # Ponto único
 (-20,-30), (40,50) # Linha
 (0,0), (30,0), (15,25) # Triângulo
 (3, 0), (1.5, 2.6), (-1.5, 2.6), (-3, 0), (-1.5, -2.6), (1.5, -2.6) # Hexagono
+```
