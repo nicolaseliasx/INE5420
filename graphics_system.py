@@ -2,42 +2,43 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from abc import ABC, abstractmethod
 
-class ObjetoGrafico(ABC):
-    _contador = 0  # Contador estático compartilhado
+
+class GraphicObject(ABC):
+    _counter = 0  # Contador estático compartilhado
     
     def __init__(self):
-        self._nome = None
-        self._gerar_nome()
+        self._name = None
+        self._generate_name()
         
-    def _gerar_nome(self):
-        ObjetoGrafico._contador += 1
-        self._nome = f"{self.prefixo}{ObjetoGrafico._contador}"
+    def _generate_name(self):
+        GraphicObject._counter += 1
+        self._name = f"{self.prefix}{GraphicObject._counter}"
     
     @property
     @abstractmethod
-    def prefixo(self):
+    def prefix(self):
         pass
     
     @property
-    def nome(self):
-        return self._nome
+    def name(self):
+        return self._name
     
     @property
     @abstractmethod
-    def tipo(self):
+    def type(self):
         pass
     
     @abstractmethod
-    def desenhar(self, canvas, transform):
+    def draw(self, canvas, transform):
         pass
 
     @classmethod
-    def reset_contador(cls):
-        cls._contador = 0
+    def reset_counter(cls):
+        cls._counter = 0
 
 
-class Ponto(ObjetoGrafico):
-    prefixo = "P"
+class Point(GraphicObject):
+    prefix = "P"
     
     def __init__(self, x, y):
         self.x = x
@@ -45,17 +46,17 @@ class Ponto(ObjetoGrafico):
         super().__init__()
     
     @property
-    def tipo(self):
+    def type(self):
         return "Ponto"
     
-    def desenhar(self, canvas, transform):
+    def draw(self, canvas, transform):
         vx, vy = transform(self.x, self.y)
         canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
                          fill="#00ff88", outline="#005533", width=2)
 
 
-class Linha(ObjetoGrafico):
-    prefixo = "L"
+class Line(GraphicObject):
+    prefix = "L"
     
     def __init__(self, x1, y1, x2, y2):
         self.x1 = x1
@@ -65,34 +66,34 @@ class Linha(ObjetoGrafico):
         super().__init__()
     
     @property
-    def tipo(self):
+    def type(self):
         return "Linha"
     
-    def desenhar(self, canvas, transform):
+    def draw(self, canvas, transform):
         vx1, vy1 = transform(self.x1, self.y1)
         vx2, vy2 = transform(self.x2, self.y2)
         canvas.create_line(vx1, vy1, vx2, vy2, 
                          fill="#00aaff", width=3, capstyle=tk.ROUND)
 
 
-class Poligono(ObjetoGrafico):
-    prefixo = "W"
+class Polygon(GraphicObject):
+    prefix = "W"
     
-    def __init__(self, coordenadas):
-        self.coordenadas = coordenadas
+    def __init__(self, coordinates):
+        self.coordinates = coordinates
         super().__init__()
     
     @property
-    def tipo(self):
+    def type(self):
         return "Polígono"
     
-    def desenhar(self, canvas, transform):
+    def draw(self, canvas, transform):
         coords = []
-        for x, y in self.coordenadas:
+        for x, y in self.coordinates:
             vx, vy = transform(x, y)
             coords.extend([vx, vy])
-        if len(self.coordenadas) >= 3:
-            x0, y0 = self.coordenadas[0]
+        if len(self.coordinates) >= 3:
+            x0, y0 = self.coordinates[0]
             vx0, vy0 = transform(x0, y0)
             coords.extend([vx0, vy0])
         canvas.create_polygon(coords, fill="", outline="#ffaa00", width=2)
@@ -289,7 +290,7 @@ class GraphicsSystem:
     def _update_object_list(self):
         self.object_tree.delete(*self.object_tree.get_children())
         for obj in self.display_file:
-            self.object_tree.insert("", "end", values=(obj.tipo, obj.nome))
+            self.object_tree.insert("", "end", values=(obj.type, obj.name))
 
 
     def move_window(self, direction):
@@ -319,7 +320,7 @@ class GraphicsSystem:
 
     def clear_canvas(self):
         self.display_file = []
-        ObjetoGrafico.reset_contador()
+        GraphicObject.reset_counter()
         self.coord_entry.delete(0, tk.END)
         self._update_object_list()
         self.redraw()
@@ -334,7 +335,7 @@ class GraphicsSystem:
             
             # Procura o objeto pelo nome na display_file
             for i, obj in enumerate(self.display_file):
-                if obj.nome == selected_name:
+                if obj.name == selected_name:
                     del self.display_file[i]
                     self._update_object_list()
                     self.redraw()
@@ -356,7 +357,7 @@ class GraphicsSystem:
     def add_point(self):
         coords = self.parse_input()
         if len(coords) == 1:
-            ponto = Ponto(*coords[0])
+            ponto = Point(*coords[0])
             self.display_file.append(ponto)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
@@ -367,7 +368,7 @@ class GraphicsSystem:
     def add_line(self):
         coords = self.parse_input()
         if len(coords) == 2:
-            linha = Linha(*coords[0], *coords[1])
+            linha = Line(*coords[0], *coords[1])
             self.display_file.append(linha)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
@@ -378,7 +379,7 @@ class GraphicsSystem:
     def add_polygon(self):
         coords = self.parse_input()
         if len(coords) >= 3:
-            poligono = Poligono(coords)
+            poligono = Polygon(coords)
             self.display_file.append(poligono)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
@@ -427,7 +428,7 @@ class GraphicsSystem:
     def redraw(self):
         self.canvas.delete("all")
         for obj in self.display_file:
-            obj.desenhar(self.canvas, self.viewport_transform)
+            obj.draw(self.canvas, self.viewport_transform)
 
     def parse_input(self):
         try:

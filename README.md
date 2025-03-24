@@ -33,7 +33,7 @@ poetry install
 3. Como executar:
 
 ```
-poetry run python grapgics_system.py
+poetry run python graphics_system.py
 ```
 
 Examples:
