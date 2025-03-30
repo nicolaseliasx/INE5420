@@ -103,6 +103,7 @@ class GraphicsSystem:
     def __init__(self, root):
         self.root = root
         self.root.configure(bg="#2d2d2d")
+        self.root.wm_minsize(1020, 680)
         
         # Configurações iniciais
         self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50}
@@ -170,8 +171,6 @@ class GraphicsSystem:
         self.canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         self.canvas = tk.Canvas(self.canvas_frame, 
-                              width=600, 
-                              height=600,
                               bg="#1a1a1a",
                               highlightthickness=0)
         self.canvas.pack(pady=10, fill=tk.BOTH, expand=True)
@@ -181,31 +180,30 @@ class GraphicsSystem:
         self.list_frame = ttk.Frame(self.content_frame)
         self.list_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10)
         
-        self.object_tree = ttk.Treeview(self.list_frame, 
-                                    columns=("type", "name"), 
-                                    show="headings",
-                                    height=25)
+        self.object_tree = ttk.Treeview(self.list_frame,
+                                        columns=("type", "name"),
+                                        show="headings")
         self.object_tree.heading("type", text="Tipo")
         self.object_tree.heading("name", text="Nome")
         self.object_tree.column("type", width=100)
         self.object_tree.column("name", width=80)
         self.object_tree.pack(fill=tk.BOTH, expand=True)
-        
+
 
     def _create_controls(self):
-        control_frame = ttk.Frame(self.main_frame)
-        control_frame.pack(fill=tk.X, pady=10)
+        self.control_frame = ttk.Frame(self.main_frame)
+        self.control_frame.pack(fill=tk.X, pady=10)
         
-        self._create_view_controls(control_frame)
-        self._create_separator(control_frame)
-        self._create_move_controls(control_frame)
-        self._create_separator(control_frame)
-        self._create_object_controls(control_frame)
+        self._create_view_controls()
+        self._create_separator()
+        self._create_move_controls()
+        self._create_separator()
+        self._create_object_controls()
+    
 
-
-    def _create_view_controls(self, parent_frame):
-        view_frame = ttk.Frame(parent_frame)
-        view_frame.pack(side=tk.LEFT, padx=5)
+    def _create_view_controls(self):
+        view_frame = ttk.Frame(self.control_frame)
+        view_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
         view_label = ttk.Label(view_frame, text="Controle de Zoom", style="Title.TLabel")
         view_label.grid(row=0, column=0, pady=5)
@@ -218,9 +216,9 @@ class GraphicsSystem:
                 command=self.reset_view).grid(row=3, column=0, pady=2)
 
 
-    def _create_move_controls(self, parent_frame):
-        move_frame = ttk.Frame(parent_frame)
-        move_frame.pack(side=tk.LEFT, padx=5)
+    def _create_move_controls(self):
+        move_frame = ttk.Frame(self.control_frame)
+        move_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
         move_label = ttk.Label(move_frame, text="Controle de Movimento", style="Title.TLabel")
         move_label.grid(row=0, column=0, pady=5, columnspan=3)
@@ -242,8 +240,8 @@ class GraphicsSystem:
                 command=lambda: self.move_window("right")).grid(row=2, column=2, padx=2, pady=2, sticky="nsew")
 
 
-    def _create_object_controls(self, parent_frame):
-        obj_frame = ttk.Frame(parent_frame)
+    def _create_object_controls(self):
+        obj_frame = ttk.Frame(self.control_frame)
         obj_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
 
         obj_label = ttk.Label(obj_frame, text="Adicionar Objetos", style="Title.TLabel")
@@ -276,8 +274,8 @@ class GraphicsSystem:
                 command=self.clear_canvas, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
 
 
-    def _create_separator(self, parent_frame):
-        separator = ttk.Separator(parent_frame, orient="vertical")
+    def _create_separator(self):
+        separator = ttk.Separator(self.control_frame, orient="vertical")
         separator.pack(side=tk.LEFT, padx=5, fill=tk.Y)
 
 
@@ -443,6 +441,6 @@ class GraphicsSystem:
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Sistema Gráfico 2D com Lista de Objetos")
-    root.geometry("1200x800")
+    root.geometry("1020x680")
     app = GraphicsSystem(root)
     root.mainloop()
