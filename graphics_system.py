@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from abc import ABC, abstractmethod
+import numpy as np
 
 
 class GraphicObject(ABC):
     _counter = 0  # Contador estático compartilhado
     
-    def __init__(self):
+    def __init__(self, coordinates):
+        self.coordinates = coordinates
         self._name = None
         self._generate_name()
         
@@ -32,62 +34,7 @@ class GraphicObject(ABC):
     def draw(self, canvas, transform):
         pass
 
-    @classmethod
-    def reset_counter(cls):
-        cls._counter = 0
-
-
-class Point(GraphicObject):
-    prefix = "P"
-    
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        super().__init__()
-    
-    @property
-    def type(self):
-        return "Ponto"
-    
-    def draw(self, canvas, transform):
-        vx, vy = transform(self.x, self.y)
-        canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
-                         fill="#00ff88", outline="#005533", width=2)
-
-
-class Line(GraphicObject):
-    prefix = "L"
-    
-    def __init__(self, x1, y1, x2, y2):
-        self.x1 = x1
-        self.y1 = y1
-        self.x2 = x2
-        self.y2 = y2
-        super().__init__()
-    
-    @property
-    def type(self):
-        return "Linha"
-    
-    def draw(self, canvas, transform):
-        vx1, vy1 = transform(self.x1, self.y1)
-        vx2, vy2 = transform(self.x2, self.y2)
-        canvas.create_line(vx1, vy1, vx2, vy2, 
-                         fill="#00aaff", width=3, capstyle=tk.ROUND)
-
-
-class Polygon(GraphicObject):
-    prefix = "W"
-    
-    def __init__(self, coordinates):
-        self.coordinates = coordinates
-        super().__init__()
-    
-    @property
-    def type(self):
-        return "Polígono"
-    
-    def draw(self, canvas, transform):
+    def get_coordinates(self, transform):
         coords = []
         for x, y in self.coordinates:
             vx, vy = transform(x, y)
@@ -96,6 +43,57 @@ class Polygon(GraphicObject):
             x0, y0 = self.coordinates[0]
             vx0, vy0 = transform(x0, y0)
             coords.extend([vx0, vy0])
+        return coords
+
+    @classmethod
+    def reset_counter(cls):
+        cls._counter = 0
+
+
+class Point(GraphicObject):
+    prefix = "P"
+    
+    def __init__(self, coordinates):
+        super().__init__(coordinates)
+    
+    @property
+    def type(self):
+        return "Ponto"
+    
+    def draw(self, canvas, transform):
+        vx, vy = self.get_coordinates(transform)
+        canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
+                         fill="#00ff88", outline="#005533", width=2)
+
+
+class Line(GraphicObject):
+    prefix = "L"
+    
+    def __init__(self, coordinates):
+        super().__init__(coordinates)
+    
+    @property
+    def type(self):
+        return "Linha"
+    
+    def draw(self, canvas, transform):
+        vx1, vy1, vx2, vy2 = self.get_coordinates(transform)
+        canvas.create_line(vx1, vy1, vx2, vy2, 
+                         fill="#00aaff", width=3, capstyle=tk.ROUND)
+
+
+class Polygon(GraphicObject):
+    prefix = "W"
+    
+    def __init__(self, coordinates):
+        super().__init__(coordinates)
+    
+    @property
+    def type(self):
+        return "Polígono"
+    
+    def draw(self, canvas, transform):
+        coords = self.get_coordinates(transform)
         canvas.create_polygon(coords, fill="", outline="#ffaa00", width=2)
 
 
@@ -268,6 +266,8 @@ class GraphicsSystem:
         clear_buttons_frame = ttk.Frame(self.list_frame)
         clear_buttons_frame.pack(side=tk.BOTTOM, pady=10)
 
+        ttk.Button(clear_buttons_frame, text="Aplicar Transformações", 
+                command=self.open_transformations_menu).pack(side=tk.TOP, padx=2, pady=5)
         ttk.Button(clear_buttons_frame, text="Apagar Selecionado", 
                 command=self.delete_selected, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
         ttk.Button(clear_buttons_frame, text="Limpar Tudo", 
@@ -338,6 +338,105 @@ class GraphicsSystem:
                     self._update_object_list()
                     self.redraw()
                     break
+    
+    def open_transformations_menu(self):
+        selected_items = self.object_tree.selection()
+        if selected_items:
+            selected_item = selected_items[0]
+            item_values = self.object_tree.item(selected_item, "values")
+            selected_name = item_values[1]
+
+            # Janela de transformações
+            trans_window = tk.Toplevel(self.root)
+            trans_window.title("Transformações 2D")
+            
+            # Translação
+            ttk.Label(trans_window, text="Translação", style="Title.TLabel").pack(pady=10)
+            
+            ttk.Label(trans_window, text="Deslocamento em X:").pack(pady=5)
+            x_entry_translation = ttk.Entry(trans_window)
+            x_entry_translation.pack(pady=5)
+            
+            ttk.Label(trans_window, text="Deslocamento em Y:").pack(pady=5)
+            y_entry_translation = ttk.Entry(trans_window)
+            y_entry_translation.pack(pady=5)
+
+            ttk.Button(trans_window, text="Aplicar Translação", command=lambda: self.apply_translation(selected_name, x_entry_translation.get(), y_entry_translation.get())).pack(pady=10)
+
+            # Escalonamento
+            ttk.Label(trans_window, text="Escalonamento", style="Title.TLabel").pack(pady=10)
+            
+            ttk.Label(trans_window, text="Deslocamento em X:").pack(pady=5)
+            x_entry_scaling = ttk.Entry(trans_window)
+            x_entry_scaling.pack(pady=5)
+            
+            ttk.Label(trans_window, text="Deslocamento em Y:").pack(pady=5)
+            y_entry_scaling = ttk.Entry(trans_window)
+            y_entry_scaling.pack(pady=5)
+
+            ttk.Button(trans_window, text="Aplicar Escalonamento", command=lambda: self.apply_scaling(selected_name, x_entry_scaling.get(), y_entry_scaling.get())).pack(pady=10)
+            
+        else:
+            messagebox.showwarning("Nenhum objeto selecionado", "Por favor, selecione um objeto para aplicar as transformações.")
+        
+    def apply_translation(self, selected_name, x_str, y_str):
+        try:
+            dx = float(x_str)
+            dy = float(y_str)
+            
+            for i, obj in enumerate(self.display_file):
+                if obj.name == selected_name:
+                    new_coordinates = []
+                    for x, y in obj.coordinates:
+                        new_x = x + dx
+                        new_y = y + dy
+
+                        new_coordinates.append((new_x, new_y))
+                    obj.coordinates = new_coordinates
+                    self.redraw()
+                    break
+
+        except ValueError:
+            messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
+
+    
+    def apply_scaling(self, selected_name, x_str, y_str):
+        try:
+            sx = float(x_str)
+            sy = float(y_str)
+            
+            for i, obj in enumerate(self.display_file):
+                if obj.name == selected_name:
+                    cx, cy = self.get_object_center(obj.coordinates)
+
+                    new_coordinates = []
+                    for x, y in obj.coordinates:
+                        matrix1 = np.array([[x, y, 1]])
+                        matrix2 = np.array([[1, 0, 0], [0, 1, 0], [-cx, -cy, 1]])
+                        matrix3 = np.array([[sx, 0, 0], [0, sy, 0], [0, 0, 1]])
+                        matrix4 = np.array([[1, 0, 0], [0, 1, 0], [cx, cy, 1]])
+                        matrix  = matrix1 @ matrix2 @ matrix3 @ matrix4
+
+                        new_x = matrix[0,0]
+                        new_y = matrix[0,1]
+
+                        new_coordinates.append((new_x, new_y))
+                    obj.coordinates = new_coordinates
+                    self.redraw()
+                    break
+
+        except ValueError:
+            messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
+
+    
+    def get_object_center(self, object_coordinates):
+        total_x, total_y = zip(*object_coordinates)
+        array_length = len(object_coordinates)
+
+        cx = sum(total_x) / array_length
+        cy = sum(total_y) / array_length
+        
+        return cx, cy
 
 
     def viewport_transform(self, x, y):
@@ -355,7 +454,7 @@ class GraphicsSystem:
     def add_point(self):
         coords = self.parse_input()
         if len(coords) == 1:
-            ponto = Point(*coords[0])
+            ponto = Point(coords)
             self.display_file.append(ponto)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
@@ -366,7 +465,7 @@ class GraphicsSystem:
     def add_line(self):
         coords = self.parse_input()
         if len(coords) == 2:
-            linha = Line(*coords[0], *coords[1])
+            linha = Line(coords)
             self.display_file.append(linha)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
