@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from abc import ABC, abstractmethod
 import numpy as np
+import math
 
 
 class GraphicObject(ABC):
@@ -267,7 +268,7 @@ class GraphicsSystem:
         clear_buttons_frame.pack(side=tk.BOTTOM, pady=10)
 
         ttk.Button(clear_buttons_frame, text="Aplicar Transformações", 
-                command=self.open_transformations_menu).pack(side=tk.TOP, padx=2, pady=5)
+                command=self.create_transformations_menu).pack(side=tk.TOP, padx=2, pady=5)
         ttk.Button(clear_buttons_frame, text="Apagar Selecionado", 
                 command=self.delete_selected, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
         ttk.Button(clear_buttons_frame, text="Limpar Tudo", 
@@ -338,47 +339,110 @@ class GraphicsSystem:
                     self._update_object_list()
                     self.redraw()
                     break
-    
-    def open_transformations_menu(self):
+
+
+    def create_transformations_menu(self):
         selected_items = self.object_tree.selection()
         if selected_items:
             selected_item = selected_items[0]
             item_values = self.object_tree.item(selected_item, "values")
             selected_name = item_values[1]
 
-            # Janela de transformações
             trans_window = tk.Toplevel(self.root)
             trans_window.title("Transformações 2D")
-            
-            # Translação
-            ttk.Label(trans_window, text="Translação", style="Title.TLabel").pack(pady=10)
-            
-            ttk.Label(trans_window, text="Deslocamento em X:").pack(pady=5)
-            x_entry_translation = ttk.Entry(trans_window)
-            x_entry_translation.pack(pady=5)
-            
-            ttk.Label(trans_window, text="Deslocamento em Y:").pack(pady=5)
-            y_entry_translation = ttk.Entry(trans_window)
-            y_entry_translation.pack(pady=5)
 
-            ttk.Button(trans_window, text="Aplicar Translação", command=lambda: self.apply_translation(selected_name, x_entry_translation.get(), y_entry_translation.get())).pack(pady=10)
+            self.notebook = ttk.Notebook(trans_window)
+            self.notebook.pack(pady=10, expand=True, fill="both")
 
-            # Escalonamento
-            ttk.Label(trans_window, text="Escalonamento", style="Title.TLabel").pack(pady=10)
-            
-            ttk.Label(trans_window, text="Deslocamento em X:").pack(pady=5)
-            x_entry_scaling = ttk.Entry(trans_window)
-            x_entry_scaling.pack(pady=5)
-            
-            ttk.Label(trans_window, text="Deslocamento em Y:").pack(pady=5)
-            y_entry_scaling = ttk.Entry(trans_window)
-            y_entry_scaling.pack(pady=5)
-
-            ttk.Button(trans_window, text="Aplicar Escalonamento", command=lambda: self.apply_scaling(selected_name, x_entry_scaling.get(), y_entry_scaling.get())).pack(pady=10)
-            
+            self.create_translation_tab(selected_name)
+            self.create_scalling_tab(selected_name)
+            self.create_rotation_tab(selected_name)
         else:
             messagebox.showwarning("Nenhum objeto selecionado", "Por favor, selecione um objeto para aplicar as transformações.")
+
+
+    def create_translation_tab(self, selected_name):
+        translation_tab = ttk.Frame(self.notebook)
+        self.notebook.add(translation_tab, text="Translação")
         
+        ttk.Label(translation_tab, text="Deslocamento em X:").pack(pady=5)
+        x_entry_translation = ttk.Entry(translation_tab)
+        x_entry_translation.pack(pady=5)
+
+        ttk.Label(translation_tab, text="Deslocamento em Y:").pack(pady=5)
+        y_entry_translation = ttk.Entry(translation_tab)
+        y_entry_translation.pack(pady=5)
+
+        ttk.Button(translation_tab, text="Aplicar Translação", 
+                command=lambda: self.apply_translation(selected_name, x_entry_translation.get(), y_entry_translation.get())).pack(pady=10)
+
+
+    def create_scalling_tab(self, selected_name):
+        scaling_tab = ttk.Frame(self.notebook)
+        self.notebook.add(scaling_tab, text="Escalonamento")
+
+        ttk.Label(scaling_tab, text="Fator de Escalonamento em X:").pack(pady=5)
+        x_entry_scaling = ttk.Entry(scaling_tab)
+        x_entry_scaling.pack(pady=5)
+
+        ttk.Label(scaling_tab, text="Fator de Escalonamento em Y:").pack(pady=5)
+        y_entry_scaling = ttk.Entry(scaling_tab)
+        y_entry_scaling.pack(pady=5)
+
+        ttk.Button(scaling_tab, text="Aplicar Escalonamento", 
+                command=lambda: self.apply_scaling(selected_name, x_entry_scaling.get(), y_entry_scaling.get())).pack(pady=10)
+        
+
+    def create_rotation_tab(self, selected_name):
+        rotation_tab = ttk.Frame(self.notebook)
+        self.notebook.add(rotation_tab, text="Rotações")
+
+        ttk.Label(rotation_tab, text="Graus:").pack(pady=5)
+        degrees = ttk.Entry(rotation_tab)
+        degrees.pack(pady=5)
+
+        ttk.Label(rotation_tab, text="Selecione o ponto de rotação:").pack(pady=5)
+        
+        rotation_option = ttk.Combobox(rotation_tab, values=["Em torno da origem", "Em torno do centro do objeto", "Em torno de um ponto arbitrário"])
+        rotation_option.set("Em torno da origem")
+        rotation_option.pack(pady=5)
+
+        point_label_x = ttk.Label(rotation_tab, text="Ponto X:")
+        point_label_x.pack(pady=5)
+        x_entry_point = ttk.Entry(rotation_tab)
+        x_entry_point.pack(pady=5)
+
+        point_label_y = ttk.Label(rotation_tab, text="Ponto Y:")
+        point_label_y.pack(pady=5)
+        y_entry_point = ttk.Entry(rotation_tab)
+        y_entry_point.pack(pady=5)
+
+        # Função para mostrar/ocultar os campos de entrada de X e Y
+        def update_point_entry(event):
+            if rotation_option.get() == "Em torno de um ponto arbitrário":
+                point_label_x.pack(pady=5)
+                x_entry_point.pack(pady=5)
+                point_label_y.pack(pady=5)
+                y_entry_point.pack(pady=5)
+            else:
+                point_label_x.pack_forget()
+                x_entry_point.pack_forget()
+                point_label_y.pack_forget()
+                y_entry_point.pack_forget()
+
+        # Monitorar alterações na seleção do combobox
+        rotation_option.bind("<<ComboboxSelected>>", update_point_entry)
+
+        # Inicialmente, ocultar os campos "Ponto X" e "Ponto Y"
+        point_label_x.pack_forget()
+        x_entry_point.pack_forget()
+        point_label_y.pack_forget()
+        y_entry_point.pack_forget()
+
+        ttk.Button(rotation_tab, text="Aplicar Rotação", 
+                command=lambda: self.apply_rotation(selected_name, rotation_option.get(), degrees.get(), x_entry_point.get(), y_entry_point.get())).pack(pady=10)
+
+
     def apply_translation(self, selected_name, x_str, y_str):
         try:
             dx = float(x_str)
@@ -395,7 +459,6 @@ class GraphicsSystem:
                     obj.coordinates = new_coordinates
                     self.redraw()
                     break
-
         except ValueError:
             messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
 
@@ -412,9 +475,18 @@ class GraphicsSystem:
                     new_coordinates = []
                     for x, y in obj.coordinates:
                         matrix1 = np.array([[x, y, 1]])
-                        matrix2 = np.array([[1, 0, 0], [0, 1, 0], [-cx, -cy, 1]])
-                        matrix3 = np.array([[sx, 0, 0], [0, sy, 0], [0, 0, 1]])
-                        matrix4 = np.array([[1, 0, 0], [0, 1, 0], [cx, cy, 1]])
+
+                        matrix2 = np.array([[1, 0, 0], 
+                                            [0, 1, 0], 
+                                            [-cx, -cy, 1]])
+
+                        matrix3 = np.array([[sx, 0, 0], 
+                                            [0, sy, 0], 
+                                            [0, 0, 1]])
+
+                        matrix4 = np.array([[1, 0, 0], 
+                                            [0, 1, 0], 
+                                            [cx, cy, 1]])
                         matrix  = matrix1 @ matrix2 @ matrix3 @ matrix4
 
                         new_x = matrix[0,0]
@@ -424,7 +496,91 @@ class GraphicsSystem:
                     obj.coordinates = new_coordinates
                     self.redraw()
                     break
+        except ValueError:
+            messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
 
+
+    def apply_rotation(self, selected_name, rotation_type, degrees, x_point, y_point):
+        try:
+            degrees = float(degrees)
+        except ValueError:
+            messagebox.showerror("Erro", "Por favor, insira um valor numérico válido para os graus.")
+            return
+
+        if rotation_type == "Em torno da origem":
+            self.apply_rotation_around_origin(selected_name, degrees)
+        elif rotation_type == "Em torno do centro do objeto":
+            self.apply_rotation_around_object_center(selected_name, degrees)
+        elif rotation_type == "Em torno de um ponto arbitrário":
+            try:
+                x_point = float(x_point)
+                y_point = float(y_point)
+                self.apply_rotation_around_point(selected_name, degrees, x_point, y_point)
+            except ValueError:
+                messagebox.showerror("Erro", "Por favor, insira um ponto válido no formato 'x, y'.")
+
+
+    def apply_rotation_around_origin(self, selected_name, degrees_str):
+        try:
+            degrees = math.radians(float(degrees_str))
+            
+            for i, obj in enumerate(self.display_file):
+                if obj.name == selected_name:
+                    new_coordinates = []
+                    for x, y in obj.coordinates:
+                        new_x = x * math.cos(degrees) - y * math.sin(degrees)
+                        new_y = x * math.sin(degrees) + y * math.cos(degrees)
+
+                        new_coordinates.append((new_x, new_y))
+                    obj.coordinates = new_coordinates
+                    self.redraw()
+                    break
+        except ValueError:
+            messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
+
+
+    def apply_rotation_around_object_center(self, selected_name, degrees_str):
+        for i, obj in enumerate(self.display_file):
+                if obj.name == selected_name:
+                    cx, cy = self.get_object_center(obj.coordinates)
+                    self.apply_rotation_around_point(selected_name, degrees_str, cx, cy)
+                    break
+
+    
+    def apply_rotation_around_point(self, selected_name, degrees_str, x_str, y_str):
+        try:
+            degrees = math.radians(float(degrees_str))
+            dx = float(x_str)
+            dy = float(y_str)
+
+            for i, obj in enumerate(self.display_file):
+                if obj.name == selected_name:
+
+                    new_coordinates = []
+                    for x, y in obj.coordinates:
+                        matrix1 = np.array([[x, y, 1]])
+                        
+                        matrix2 = np.array([[1, 0, 0], 
+                                            [0, 1, 0], 
+                                            [-dx, -dy, 1]])
+
+                        matrix3 = np.array([[math.cos(degrees), -math.sin(degrees), 0], 
+                                            [math.sin(degrees), math.cos(degrees), 0], 
+                                            [0, 0, 1]])
+
+                        matrix4 = np.array([[1, 0, 0], 
+                                            [0, 1, 0], 
+                                            [dx, dy, 1]])
+                        
+                        matrix  = matrix1 @ matrix2 @ matrix3 @ matrix4
+
+                        new_x = matrix[0,0]
+                        new_y = matrix[0,1]
+
+                        new_coordinates.append((new_x, new_y))
+                    obj.coordinates = new_coordinates
+                    self.redraw()
+                    break
         except ValueError:
             messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
 
