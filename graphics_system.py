@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 import math
 
-
 class GraphicObject(ABC):
     _counter = 0  # Contador estático compartilhado
     
@@ -50,7 +49,6 @@ class GraphicObject(ABC):
     def reset_counter(cls):
         cls._counter = 0
 
-
 class Point(GraphicObject):
     prefix = "P"
     
@@ -65,7 +63,6 @@ class Point(GraphicObject):
         vx, vy = self.get_coordinates(transform)
         canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
                          fill="#00ff88", outline="#005533", width=2)
-
 
 class Line(GraphicObject):
     prefix = "L"
@@ -82,7 +79,6 @@ class Line(GraphicObject):
         canvas.create_line(vx1, vy1, vx2, vy2, 
                          fill="#00aaff", width=3, capstyle=tk.ROUND)
 
-
 class Polygon(GraphicObject):
     prefix = "W"
     
@@ -97,7 +93,6 @@ class Polygon(GraphicObject):
         coords = self.get_coordinates(transform)
         canvas.create_polygon(coords, fill="", outline="#ffaa00", width=2)
 
-
 class GraphicsSystem:
     def __init__(self, root):
         self.root = root
@@ -110,6 +105,7 @@ class GraphicsSystem:
         self.viewport = {"xmin": 50, "ymin": 50, "xmax": 850, "ymax": 650}
         self.display_file = []
         self.move_step = 0.1
+        self.temp_transformations = []  # Lista temporária para transformações
         
         # Configuração do tema
         self.style = ttk.Style()
@@ -128,7 +124,6 @@ class GraphicsSystem:
         self._create_object_list()
         self._create_controls()
         self._bind_events()
-
 
     def _configure_styles(self):
         self.style.configure("TFrame", background="#2d2d2d")
@@ -164,7 +159,6 @@ class GraphicsSystem:
                              background="#2d2d2d", 
                              foreground="white")
 
-
     def _create_canvas(self):
         self.canvas_frame = ttk.Frame(self.content_frame)
         self.canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -173,7 +167,6 @@ class GraphicsSystem:
                               bg="#1a1a1a",
                               highlightthickness=0)
         self.canvas.pack(pady=10, fill=tk.BOTH, expand=True)
-
 
     def _create_object_list(self):
         self.list_frame = ttk.Frame(self.content_frame)
@@ -188,7 +181,6 @@ class GraphicsSystem:
         self.object_tree.column("name", width=80)
         self.object_tree.pack(fill=tk.BOTH, expand=True)
 
-
     def _create_controls(self):
         self.control_frame = ttk.Frame(self.main_frame)
         self.control_frame.pack(fill=tk.X, pady=10)
@@ -199,7 +191,6 @@ class GraphicsSystem:
         self._create_separator()
         self._create_object_controls()
     
-
     def _create_view_controls(self):
         view_frame = ttk.Frame(self.control_frame)
         view_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -213,7 +204,6 @@ class GraphicsSystem:
                 command=lambda: self.zoom_manual(1.1)).grid(row=2, column=0, pady=2)
         ttk.Button(view_frame, text="Resetar", 
                 command=self.reset_view).grid(row=3, column=0, pady=2)
-
 
     def _create_move_controls(self):
         move_frame = ttk.Frame(self.control_frame)
@@ -237,7 +227,6 @@ class GraphicsSystem:
                 command=lambda: self.move_window("left")).grid(row=2, column=0, padx=2, pady=2, sticky="nsew")
         ttk.Button(move_frame, text="→", 
                 command=lambda: self.move_window("right")).grid(row=2, column=2, padx=2, pady=2, sticky="nsew")
-
 
     def _create_object_controls(self):
         obj_frame = ttk.Frame(self.control_frame)
@@ -274,23 +263,19 @@ class GraphicsSystem:
         ttk.Button(clear_buttons_frame, text="Limpar Tudo", 
                 command=self.clear_canvas, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
 
-
     def _create_separator(self):
         separator = ttk.Separator(self.control_frame, orient="vertical")
         separator.pack(side=tk.LEFT, padx=5, fill=tk.Y)
-
 
     def _bind_events(self):
         self.canvas.bind("<MouseWheel>", self.zoom)
         self.canvas.bind("<Button-2>", lambda e: self.pan(e, "start"))
         self.canvas.bind("<B2-Motion>", lambda e: self.pan(e, "drag"))
         
-
     def _update_object_list(self):
         self.object_tree.delete(*self.object_tree.get_children())
         for obj in self.display_file:
             self.object_tree.insert("", "end", values=(obj.type, obj.name))
-
 
     def move_window(self, direction):
         delta_x = (self.window["xmax"] - self.window["xmin"]) * self.move_step
@@ -311,11 +296,9 @@ class GraphicsSystem:
             
         self.redraw()
 
-
     def reset_view(self):
         self.window = self.original_window.copy()
         self.redraw()
-
 
     def clear_canvas(self):
         self.display_file = []
@@ -323,7 +306,6 @@ class GraphicsSystem:
         self.coord_entry.delete(0, tk.END)
         self._update_object_list()
         self.redraw()
-
 
     def delete_selected(self):
         selected_items = self.object_tree.selection()
@@ -340,7 +322,6 @@ class GraphicsSystem:
                     self.redraw()
                     break
 
-
     def create_transformations_menu(self):
         selected_items = self.object_tree.selection()
         if selected_items:
@@ -348,100 +329,227 @@ class GraphicsSystem:
             item_values = self.object_tree.item(selected_item, "values")
             selected_name = item_values[1]
 
+            # Janela temporária para coletar transformações
+            self.temp_transformations = []  # Lista temporária para esta sessão
             trans_window = tk.Toplevel(self.root)
             trans_window.title("Transformações 2D")
 
-            self.notebook = ttk.Notebook(trans_window)
-            self.notebook.pack(pady=10, expand=True, fill="both")
+            # Frame principal para organizar abas e lista
+            main_frame = ttk.Frame(trans_window)
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-            self.create_translation_tab(selected_name)
-            self.create_scalling_tab(selected_name)
-            self.create_rotation_tab(selected_name)
+            # Notebook (Abas) à esquerda
+            self.notebook = ttk.Notebook(main_frame)
+            self.notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            # Frame da lista à direita
+            list_frame = ttk.Frame(main_frame)
+            list_frame.pack(side=tk.RIGHT, fill=tk.BOTH)
+
+            # Treeview para listar transformações
+            self.transform_list = ttk.Treeview(list_frame, columns=("type", "params"), show="headings", height=5)
+            self.transform_list.heading("type", text="Tipo")
+            self.transform_list.heading("params", text="Parâmetros")
+            self.transform_list.pack(fill=tk.BOTH, expand=True)
+
+            # Botões abaixo da lista
+            button_frame = ttk.Frame(list_frame)
+            button_frame.pack(pady=5)
+
+            ttk.Button(button_frame, text="Adicionar", 
+                    command=lambda: self.add_transformation(selected_name, trans_window)).pack(side=tk.LEFT, padx=2)
+            ttk.Button(button_frame, text="Remover", 
+                    command=self.remove_transformation).pack(side=tk.LEFT, padx=2)
+            ttk.Button(button_frame, text="Aplicar Tudo", 
+                    command=lambda: self.apply_all_transformations(selected_name, trans_window)).pack(side=tk.LEFT, padx=2)
+
+            # Criar abas de transformações
+            self.create_translation_tab()
+            self.create_scaling_tab()
+            self.create_rotation_tab()
+
+    def add_transformation(self, selected_name, window):
+        current_tab = self.notebook.tab(self.notebook.select(), "text")
+        params = self.get_params_from_tab(current_tab)
+        if params:
+            self.temp_transformations.append({"type": current_tab, "params": params})
+            self.update_transform_list()
+
+    def apply_all_transformations(self, selected_name, window):
+        combined_matrix = np.identity(3)
+        for t in self.temp_transformations:
+            matrix = self.generate_matrix(t["type"], t["params"], selected_name)
+            combined_matrix = combined_matrix @ matrix
+
+        # Aplica a matriz final ao objeto
+        for obj in self.display_file:
+            if obj.name == selected_name:
+                new_coords = []
+                for x, y in obj.coordinates:
+                    point = np.array([x, y, 1])
+                    transformed_point = point @ combined_matrix
+                    new_coords.append((transformed_point[0], transformed_point[1]))
+                obj.coordinates = new_coords
+                self.redraw()
+                break
+        window.destroy()
+
+    def get_params_from_tab(self, tab_name):
+        params = {}
+        current_tab = self.notebook.nametowidget(self.notebook.select())
+        
+        if tab_name == "Translação":
+            params["dx"] = float(current_tab.children["x_entry"].get())
+            params["dy"] = float(current_tab.children["y_entry"].get())
+        
+        elif tab_name == "Escalonamento":
+            params["sx"] = float(current_tab.children["sx_entry"].get())
+            params["sy"] = float(current_tab.children["sy_entry"].get())
+        
+        elif tab_name == "Rotações":
+            params["degrees"] = float(current_tab.children["degrees_entry"].get())
+            params["pivot_type"] = current_tab.children["pivot_combobox"].get()
+            
+            if params["pivot_type"] == "Em torno de um ponto arbitrário":
+                params["x"] = float(current_tab.children["x_pivot_entry"].get())
+                params["y"] = float(current_tab.children["y_pivot_entry"].get())
+        
+        return params
+
+    def generate_matrix(self, trans_type, params, selected_name):
+        if trans_type == "Translação":
+            dx = params["dx"]
+            dy = params["dy"]
+            return np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [dx, dy, 1]
+            ])
+        elif trans_type == "Escalonamento":
+            sx = params["sx"]
+            sy = params["sy"]
+            for obj in self.display_file:
+                if obj.name == selected_name:
+                    cx, cy = self.get_object_center(obj.coordinates)
+                    break
+            return np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [-cx, -cy, 1]
+            ]) @ np.array([
+                [sx, 0, 0],
+                [0, sy, 0],
+                [0, 0, 1]
+            ]) @ np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [cx, cy, 1]
+            ])
+        elif trans_type == "Rotações":
+            degrees = math.radians(params["degrees"])
+            pivot_type = params["pivot_type"]
+            if pivot_type == "Em torno da origem":
+                cx, cy = 0.0, 0.0
+            elif pivot_type == "Em torno do centro do objeto":
+                for obj in self.display_file:
+                    if obj.name == selected_name:
+                        cx, cy = self.get_object_center(obj.coordinates)
+                        break
+            else:
+                cx = params["x"]
+                cy = params["y"]
+            return np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [-cx, -cy, 1]
+            ]) @ np.array([
+                [math.cos(degrees), -math.sin(degrees), 0],
+                [math.sin(degrees), math.cos(degrees), 0],
+                [0, 0, 1]
+            ]) @ np.array([
+                [1, 0, 0],
+                [0, 1, 0],
+                [cx, cy, 1]
+            ])
         else:
-            messagebox.showwarning("Nenhum objeto selecionado", "Por favor, selecione um objeto para aplicar as transformações.")
+            return np.identity(3)
 
+    def update_transform_list(self):
+        self.transform_list.delete(*self.transform_list.get_children())
+        for t in self.temp_transformations:
+            desc = f"{t['type']}: "
+            if t["type"] == "Translação":
+                desc += f"dx={t['params']['dx']}, dy={t['params']['dy']}"
+            elif t["type"] == "Escalonamento":
+                desc += f"sx={t['params']['sx']}, sy={t['params']['sy']}"
+            elif t["type"] == "Rotações":
+                desc += f"graus={t['params']['degrees']}, pivô={t['params']['pivot_type']}"
+            self.transform_list.insert("", "end", values=(t["type"], desc))
 
-    def create_translation_tab(self, selected_name):
+    def remove_transformation(self):
+        selected = self.transform_list.selection()
+        if selected:
+            index = self.transform_list.index(selected[0])
+            del self.temp_transformations[index]
+            self.update_transform_list()
+
+    def create_translation_tab(self):
         translation_tab = ttk.Frame(self.notebook)
         self.notebook.add(translation_tab, text="Translação")
         
         ttk.Label(translation_tab, text="Deslocamento em X:").pack(pady=5)
-        x_entry_translation = ttk.Entry(translation_tab)
-        x_entry_translation.pack(pady=5)
-
+        x_entry = ttk.Entry(translation_tab, name="x_entry")
+        x_entry.pack(pady=5)
+        
         ttk.Label(translation_tab, text="Deslocamento em Y:").pack(pady=5)
-        y_entry_translation = ttk.Entry(translation_tab)
-        y_entry_translation.pack(pady=5)
+        y_entry = ttk.Entry(translation_tab, name="y_entry")
+        y_entry.pack(pady=5)
 
-        ttk.Button(translation_tab, text="Aplicar Translação", 
-                command=lambda: self.apply_translation(selected_name, x_entry_translation.get(), y_entry_translation.get())).pack(pady=10)
-
-
-    def create_scalling_tab(self, selected_name):
+    def create_scaling_tab(self):
         scaling_tab = ttk.Frame(self.notebook)
         self.notebook.add(scaling_tab, text="Escalonamento")
 
         ttk.Label(scaling_tab, text="Fator de Escalonamento em X:").pack(pady=5)
-        x_entry_scaling = ttk.Entry(scaling_tab)
-        x_entry_scaling.pack(pady=5)
+        sx_entry = ttk.Entry(scaling_tab, name="sx_entry")
+        sx_entry.pack(pady=5)
 
         ttk.Label(scaling_tab, text="Fator de Escalonamento em Y:").pack(pady=5)
-        y_entry_scaling = ttk.Entry(scaling_tab)
-        y_entry_scaling.pack(pady=5)
+        sy_entry = ttk.Entry(scaling_tab, name="sy_entry")
+        sy_entry.pack(pady=5)
 
-        ttk.Button(scaling_tab, text="Aplicar Escalonamento", 
-                command=lambda: self.apply_scaling(selected_name, x_entry_scaling.get(), y_entry_scaling.get())).pack(pady=10)
-        
-
-    def create_rotation_tab(self, selected_name):
+    def create_rotation_tab(self):
         rotation_tab = ttk.Frame(self.notebook)
         self.notebook.add(rotation_tab, text="Rotações")
 
         ttk.Label(rotation_tab, text="Graus:").pack(pady=5)
-        degrees = ttk.Entry(rotation_tab)
-        degrees.pack(pady=5)
+        degrees_entry = ttk.Entry(rotation_tab, name="degrees_entry")
+        degrees_entry.pack(pady=5)
 
         ttk.Label(rotation_tab, text="Selecione o ponto de rotação:").pack(pady=5)
         
-        rotation_option = ttk.Combobox(rotation_tab, values=["Em torno da origem", "Em torno do centro do objeto", "Em torno de um ponto arbitrário"])
-        rotation_option.set("Em torno da origem")
-        rotation_option.pack(pady=5)
+        pivot_combobox = ttk.Combobox(rotation_tab, values=["Em torno da origem", "Em torno do centro do objeto", "Em torno de um ponto arbitrário"], name="pivot_combobox")
+        pivot_combobox.set("Em torno da origem")
+        pivot_combobox.pack(pady=5)
 
         point_label_x = ttk.Label(rotation_tab, text="Ponto X:")
-        point_label_x.pack(pady=5)
-        x_entry_point = ttk.Entry(rotation_tab)
-        x_entry_point.pack(pady=5)
-
+        x_pivot_entry = ttk.Entry(rotation_tab, name="x_pivot_entry")
         point_label_y = ttk.Label(rotation_tab, text="Ponto Y:")
-        point_label_y.pack(pady=5)
-        y_entry_point = ttk.Entry(rotation_tab)
-        y_entry_point.pack(pady=5)
+        y_pivot_entry = ttk.Entry(rotation_tab, name="y_pivot_entry")
 
-        # Função para mostrar/ocultar os campos de entrada de X e Y
         def update_point_entry(event):
-            if rotation_option.get() == "Em torno de um ponto arbitrário":
+            if pivot_combobox.get() == "Em torno de um ponto arbitrário":
                 point_label_x.pack(pady=5)
-                x_entry_point.pack(pady=5)
+                x_pivot_entry.pack(pady=5)
                 point_label_y.pack(pady=5)
-                y_entry_point.pack(pady=5)
+                y_pivot_entry.pack(pady=5)
             else:
                 point_label_x.pack_forget()
-                x_entry_point.pack_forget()
+                x_pivot_entry.pack_forget()
                 point_label_y.pack_forget()
-                y_entry_point.pack_forget()
+                y_pivot_entry.pack_forget()
 
-        # Monitorar alterações na seleção do combobox
-        rotation_option.bind("<<ComboboxSelected>>", update_point_entry)
-
-        # Inicialmente, ocultar os campos "Ponto X" e "Ponto Y"
-        point_label_x.pack_forget()
-        x_entry_point.pack_forget()
-        point_label_y.pack_forget()
-        y_entry_point.pack_forget()
-
-        ttk.Button(rotation_tab, text="Aplicar Rotação", 
-                command=lambda: self.apply_rotation(selected_name, rotation_option.get(), degrees.get(), x_entry_point.get(), y_entry_point.get())).pack(pady=10)
-
+        pivot_combobox.bind("<<ComboboxSelected>>", update_point_entry)
+        update_point_entry(None)
 
     def apply_translation(self, selected_name, x_str, y_str):
         try:
@@ -454,7 +562,6 @@ class GraphicsSystem:
                     for x, y in obj.coordinates:
                         new_x = x + dx
                         new_y = y + dy
-
                         new_coordinates.append((new_x, new_y))
                     obj.coordinates = new_coordinates
                     self.redraw()
@@ -462,7 +569,6 @@ class GraphicsSystem:
         except ValueError:
             messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
 
-    
     def apply_scaling(self, selected_name, x_str, y_str):
         try:
             sx = float(x_str)
@@ -471,82 +577,21 @@ class GraphicsSystem:
             for i, obj in enumerate(self.display_file):
                 if obj.name == selected_name:
                     cx, cy = self.get_object_center(obj.coordinates)
-
                     new_coordinates = []
                     for x, y in obj.coordinates:
-                        matrix1 = np.array([[x, y, 1]])
-
-                        matrix2 = np.array([[1, 0, 0], 
-                                            [0, 1, 0], 
-                                            [-cx, -cy, 1]])
-
-                        matrix3 = np.array([[sx, 0, 0], 
-                                            [0, sy, 0], 
-                                            [0, 0, 1]])
-
-                        matrix4 = np.array([[1, 0, 0], 
-                                            [0, 1, 0], 
-                                            [cx, cy, 1]])
-                        matrix  = matrix1 @ matrix2 @ matrix3 @ matrix4
-
-                        new_x = matrix[0,0]
-                        new_y = matrix[0,1]
-
-                        new_coordinates.append((new_x, new_y))
+                        matrix = (
+                            np.array([[1, 0, 0], [0, 1, 0], [-cx, -cy, 1]]) @
+                            np.array([[sx, 0, 0], [0, sy, 0], [0, 0, 1]]) @
+                            np.array([[1, 0, 0], [0, 1, 0], [cx, cy, 1]])
+                        )
+                        transformed = np.array([x, y, 1]) @ matrix
+                        new_coordinates.append((transformed[0], transformed[1]))
                     obj.coordinates = new_coordinates
                     self.redraw()
                     break
         except ValueError:
             messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
 
-
-    def apply_rotation(self, selected_name, rotation_type, degrees, x_point, y_point):
-        try:
-            degrees = float(degrees)
-        except ValueError:
-            messagebox.showerror("Erro", "Por favor, insira um valor numérico válido para os graus.")
-            return
-
-        if rotation_type == "Em torno da origem":
-            self.apply_rotation_around_origin(selected_name, degrees)
-        elif rotation_type == "Em torno do centro do objeto":
-            self.apply_rotation_around_object_center(selected_name, degrees)
-        elif rotation_type == "Em torno de um ponto arbitrário":
-            try:
-                x_point = float(x_point)
-                y_point = float(y_point)
-                self.apply_rotation_around_point(selected_name, degrees, x_point, y_point)
-            except ValueError:
-                messagebox.showerror("Erro", "Por favor, insira um ponto válido no formato 'x, y'.")
-
-
-    def apply_rotation_around_origin(self, selected_name, degrees_str):
-        try:
-            degrees = math.radians(float(degrees_str))
-            
-            for i, obj in enumerate(self.display_file):
-                if obj.name == selected_name:
-                    new_coordinates = []
-                    for x, y in obj.coordinates:
-                        new_x = x * math.cos(degrees) - y * math.sin(degrees)
-                        new_y = x * math.sin(degrees) + y * math.cos(degrees)
-
-                        new_coordinates.append((new_x, new_y))
-                    obj.coordinates = new_coordinates
-                    self.redraw()
-                    break
-        except ValueError:
-            messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
-
-
-    def apply_rotation_around_object_center(self, selected_name, degrees_str):
-        for i, obj in enumerate(self.display_file):
-                if obj.name == selected_name:
-                    cx, cy = self.get_object_center(obj.coordinates)
-                    self.apply_rotation_around_point(selected_name, degrees_str, cx, cy)
-                    break
-
-    
     def apply_rotation_around_point(self, selected_name, degrees_str, x_str, y_str):
         try:
             degrees = math.radians(float(degrees_str))
@@ -555,53 +600,35 @@ class GraphicsSystem:
 
             for i, obj in enumerate(self.display_file):
                 if obj.name == selected_name:
-
                     new_coordinates = []
                     for x, y in obj.coordinates:
-                        matrix1 = np.array([[x, y, 1]])
-                        
-                        matrix2 = np.array([[1, 0, 0], 
-                                            [0, 1, 0], 
-                                            [-dx, -dy, 1]])
-
-                        matrix3 = np.array([[math.cos(degrees), -math.sin(degrees), 0], 
-                                            [math.sin(degrees), math.cos(degrees), 0], 
-                                            [0, 0, 1]])
-
-                        matrix4 = np.array([[1, 0, 0], 
-                                            [0, 1, 0], 
-                                            [dx, dy, 1]])
-                        
-                        matrix  = matrix1 @ matrix2 @ matrix3 @ matrix4
-
-                        new_x = matrix[0,0]
-                        new_y = matrix[0,1]
-
-                        new_coordinates.append((new_x, new_y))
+                        matrix = (
+                            np.array([[1, 0, 0], [0, 1, 0], [-dx, -dy, 1]]) @
+                            np.array([[math.cos(degrees), -math.sin(degrees), 0], 
+                                      [math.sin(degrees), math.cos(degrees), 0], 
+                                      [0, 0, 1]]) @
+                            np.array([[1, 0, 0], [0, 1, 0], [dx, dy, 1]])
+                        )
+                        transformed = np.array([x, y, 1]) @ matrix
+                        new_coordinates.append((transformed[0], transformed[1]))
                     obj.coordinates = new_coordinates
                     self.redraw()
                     break
         except ValueError:
             messagebox.showerror("Erro de Entrada", "Por favor, insira valores válidos para X e Y.")
 
-    
     def get_object_center(self, object_coordinates):
         total_x, total_y = zip(*object_coordinates)
         array_length = len(object_coordinates)
-
         cx = sum(total_x) / array_length
         cy = sum(total_y) / array_length
-        
         return cx, cy
-
 
     def viewport_transform(self, x, y):
         window_aspect = (self.window["xmax"] - self.window["xmin"]) / (self.window["ymax"] - self.window["ymin"])
         viewport_aspect = (self.viewport["xmax"] - self.viewport["xmin"]) / (self.viewport["ymax"] - self.viewport["ymin"])
-        
         scale = (self.viewport["xmax"] - self.viewport["xmin"]) / (self.window["xmax"] - self.window["xmin"]) if window_aspect > viewport_aspect else (
             self.viewport["ymax"] - self.viewport["ymin"]) / (self.window["ymax"] - self.window["ymin"])
-        
         return (
             self.viewport["xmin"] + (x - self.window["xmin"]) * scale,
             self.viewport["ymin"] + (self.window["ymax"] - y) * scale
@@ -687,7 +714,7 @@ class GraphicsSystem:
         try:
             input_str = self.coord_entry.get().strip()
             if input_str:
-                return list(eval(f"[{input_str.replace(" ", "").replace(")(", "),(")}]"))
+                return list(eval(f"[{input_str.replace(' ', '').replace(')(', '),(')}]"))
             return []
         except:
             messagebox.showerror("Erro de Entrada", "Coordenadas inválidas! Por favor, insira coordenadas no formato correto.")
