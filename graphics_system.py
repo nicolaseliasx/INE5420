@@ -3,12 +3,14 @@ from tkinter import ttk, messagebox
 from abc import ABC, abstractmethod
 import numpy as np
 import math
+from tkinter.colorchooser import askcolor
 
 class GraphicObject(ABC):
     _counter = 0  # Contador estático compartilhado
     
-    def __init__(self, coordinates):
+    def __init__(self, coordinates, color="#00aaff"):
         self.coordinates = coordinates
+        self.color = color
         self._name = None
         self._generate_name()
         
@@ -52,8 +54,8 @@ class GraphicObject(ABC):
 class Point(GraphicObject):
     prefix = "P"
     
-    def __init__(self, coordinates):
-        super().__init__(coordinates)
+    def __init__(self, coordinates, color="#00aaff"):
+        super().__init__(coordinates, color)
     
     @property
     def type(self):
@@ -62,13 +64,13 @@ class Point(GraphicObject):
     def draw(self, canvas, transform):
         vx, vy = self.get_coordinates(transform)
         canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
-                         fill="#00ff88", outline="#005533", width=2)
+                         fill=self.color, outline="#005533", width=2)
 
 class Line(GraphicObject):
     prefix = "L"
     
-    def __init__(self, coordinates):
-        super().__init__(coordinates)
+    def __init__(self, coordinates, color="#00aaff"):
+        super().__init__(coordinates, color)
     
     @property
     def type(self):
@@ -77,13 +79,13 @@ class Line(GraphicObject):
     def draw(self, canvas, transform):
         vx1, vy1, vx2, vy2 = self.get_coordinates(transform)
         canvas.create_line(vx1, vy1, vx2, vy2, 
-                         fill="#00aaff", width=3, capstyle=tk.ROUND)
+                         fill=self.color, width=3, capstyle=tk.ROUND)
 
 class Polygon(GraphicObject):
     prefix = "W"
     
-    def __init__(self, coordinates):
-        super().__init__(coordinates)
+    def __init__(self, coordinates, color="#ffaa00"):
+        super().__init__(coordinates, color)
     
     @property
     def type(self):
@@ -91,13 +93,14 @@ class Polygon(GraphicObject):
     
     def draw(self, canvas, transform):
         coords = self.get_coordinates(transform)
-        canvas.create_polygon(coords, fill="", outline="#ffaa00", width=2)
+        canvas.create_polygon(coords, fill="", outline=self.color, width=2)
 
 class GraphicsSystem:
     def __init__(self, root):
         self.root = root
         self.root.configure(bg="#2d2d2d")
         self.root.wm_minsize(1020, 680)
+        self.selected_color = "#00aaff"  # Cor padrão
         
         # Configurações iniciais
         self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50}
@@ -262,6 +265,13 @@ class GraphicsSystem:
                 command=self.delete_selected, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
         ttk.Button(clear_buttons_frame, text="Limpar Tudo", 
                 command=self.clear_canvas, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
+        
+        ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
+
+    def choose_color(self):
+        color = askcolor()[1]
+        if color:
+            self.selected_color = color
 
     def _create_separator(self):
         separator = ttk.Separator(self.control_frame, orient="vertical")
@@ -637,7 +647,7 @@ class GraphicsSystem:
     def add_point(self):
         coords = self.parse_input()
         if len(coords) == 1:
-            ponto = Point(coords)
+            ponto = Point(coords, color=self.selected_color)
             self.display_file.append(ponto)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
@@ -648,7 +658,7 @@ class GraphicsSystem:
     def add_line(self):
         coords = self.parse_input()
         if len(coords) == 2:
-            linha = Line(coords)
+            linha = Line(coords, color=self.selected_color)
             self.display_file.append(linha)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
@@ -659,7 +669,7 @@ class GraphicsSystem:
     def add_polygon(self):
         coords = self.parse_input()
         if len(coords) >= 3:
-            poligono = Polygon(coords)
+            poligono = Polygon(coords, color=self.selected_color)
             self.display_file.append(poligono)
             self.coord_entry.delete(0, tk.END)
             self._update_object_list()
