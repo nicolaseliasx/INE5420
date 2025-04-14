@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from abc import ABC, abstractmethod
+from tkinter import filedialog
 import numpy as np
 import math
 from tkinter.colorchooser import askcolor
@@ -95,6 +96,128 @@ class Polygon(GraphicObject):
         coords = self.get_coordinates(transform)
         canvas.create_polygon(coords, fill="", outline=self.color, width=2)
 
+class DescritorOBJ:
+    @staticmethod
+    def read_obj(filename):
+        display_file = []
+        vertices = []
+        color_map = {}  # Mapeia nomes de objetos para cores
+        elements = []    # Lista de elementos (p, l, f) com seus nomes
+        current_name = None
+
+        with open(filename, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                parts = line.split()
+                if not parts:
+                    continue
+
+                # Processamento de vértices
+                if parts[0] == 'v':
+                    x, y = map(float, parts[1:3])
+                    vertices.append((x, y))
+
+                # Processamento de cores
+                elif parts[0] == 'c' and len(parts) >= 3:
+                    color_map[parts[1]] = parts[2]
+
+                # Processamento de elementos gráficos
+                elif parts[0] in ['p', 'l', 'f']:
+                    element_type = parts[0]
+                    indices = [int(part.split('/')[0]) for part in parts[1:]]
+                    elements.append((element_type, indices))
+
+        # Criar objetos gráficos
+        max_counter = 0
+        for i, (elem_type, indices) in enumerate(elements):
+            # Obter coordenadas reais (índices são 1-based)
+            coords = [vertices[idx-1] for idx in indices]
+            
+            # Gerar nome sequencial (P1, L2, W3, W4, etc)
+            obj_prefix = {
+                'p': 'P',
+                'l': 'L',
+                'f': 'W'
+            }[elem_type]
+            obj_number = i + 1
+            name = f"{obj_prefix}{obj_number}"
+            
+            # Criar objeto com a cor correspondente
+            color = color_map.get(name, "#00aaff")
+
+            if elem_type == 'p' and len(coords) == 1:
+                obj = Point(coords, color)
+            elif elem_type == 'l' and len(coords) == 2:
+                obj = Line(coords, color)
+            elif elem_type == 'f' and len(coords) >= 3:
+                obj = Polygon(coords, color)
+            else:
+                continue  # Ignora elementos inválidos
+
+            # Atualizar nome e contador
+            obj._name = name
+            max_counter = max(max_counter, obj_number)
+            display_file.append(obj)
+
+        # Atualizar contador global de objetos
+        GraphicObject._counter = max_counter
+
+        return display_file
+    
+    @staticmethod
+    def write_obj(display_file, filename):
+        try:
+            if not display_file:
+                raise ValueError("Não há objetos para salvar")
+
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("# Sistema Gráfico - Arquivo OBJ\n")
+                f.write("o CenaCompleta\n")  # Um único objeto para toda a cena
+
+                # Escreve todos os vértices primeiro
+                vertex_index = 1
+                all_vertices = []  # Armazena todos os vértices em ordem
+                vertex_map = {}    # Evita vértices duplicados
+
+                for obj in display_file:
+                    for coord in obj.coordinates:
+                        if coord not in vertex_map:
+                            all_vertices.append(coord)
+                            vertex_map[coord] = vertex_index
+                            vertex_index += 1
+
+                # Escreve vértices no arquivo
+                for x, y in all_vertices:
+                    f.write(f"v {x:.2f} {y:.2f} 0.0\n")
+
+                # Escreve cores personalizadas (formato extendido)
+                for obj in display_file:
+                    f.write(f"c {obj.name} {obj.color}\n")
+
+                # Escreve elementos (pontos, linhas, polígonos)
+                for obj in display_file:
+                    # Obtém índices dos vértices do objeto
+                    indices = [str(vertex_map[coord]) for coord in obj.coordinates]
+                    
+                    if isinstance(obj, Point):
+                        f.write(f"p {' '.join(indices)}\n")
+                    elif isinstance(obj, Line):
+                        f.write(f"l {' '.join(indices)}\n")
+                    elif isinstance(obj, Polygon):
+                        f.write(f"f {' '.join(indices)}\n")
+                    else:
+                        raise TypeError(f"Tipo inválido: {type(obj)}")
+
+                f.write("\n# Fim do arquivo\n")
+                return True
+
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao salvar:\n{str(e)}")
+            return False
+
 class GraphicsSystem:
     def __init__(self, root):
         self.root = root
@@ -127,6 +250,41 @@ class GraphicsSystem:
         self._create_object_list()
         self._create_controls()
         self._bind_events()
+
+        self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50, "rotation": 0}
+        self.original_window = self.window.copy()
+        
+        # Adicionar elementos de interface para rotação
+        self._create_rotation_controls()
+        self._create_file_controls()
+
+    def _create_rotation_controls(self):
+        rotation_frame = ttk.Frame(self.control_frame)
+        rotation_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        ttk.Label(rotation_frame, text="Rotação Window", style="Title.TLabel").grid(row=0, column=0, pady=5)
+        
+        self.rotation_entry = ttk.Entry(rotation_frame, width=8)
+        self.rotation_entry.grid(row=1, column=0, padx=2)
+        ttk.Button(rotation_frame, text="Aplicar", 
+                 command=self.apply_window_rotation).grid(row=1, column=1, padx=2)
+
+    def _create_file_controls(self):
+        file_frame = ttk.Frame(self.control_frame)
+        file_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        ttk.Button(file_frame, text="Salvar OBJ", 
+                 command=self.save_obj).pack(side=tk.LEFT, padx=2)
+        ttk.Button(file_frame, text="Carregar OBJ", 
+                 command=self.load_obj).pack(side=tk.LEFT, padx=2)
+        
+    def apply_window_rotation(self):
+        try:
+            angle = float(self.rotation_entry.get())
+            self.window["rotation"] = math.radians(angle)
+            self.redraw()
+        except ValueError:
+            messagebox.showerror("Erro", "Ângulo inválido")
 
     def _configure_styles(self):
         self.style.configure("TFrame", background="#2d2d2d")
@@ -288,23 +446,51 @@ class GraphicsSystem:
             self.object_tree.insert("", "end", values=(obj.type, obj.name))
 
     def move_window(self, direction):
-        delta_x = (self.window["xmax"] - self.window["xmin"]) * self.move_step
-        delta_y = (self.window["ymax"] - self.window["ymin"]) * self.move_step
+        # Calcular deltas considerando rotação
+        theta = self.window["rotation"]
+        delta = {
+            'up': (0, 1),
+            'down': (0, -1),
+            'left': (-1, 0),
+            'right': (1, 0)
+        }[direction]
         
-        if direction == "up":
-            self.window["ymin"] += delta_y
-            self.window["ymax"] += delta_y
-        elif direction == "down":
-            self.window["ymin"] -= delta_y
-            self.window["ymax"] -= delta_y
-        elif direction == "left":
-            self.window["xmin"] -= delta_x
-            self.window["xmax"] -= delta_x
-        elif direction == "right":
-            self.window["xmin"] += delta_x
-            self.window["xmax"] += delta_x
-            
+        dx = delta[0] * (self.window["xmax"] - self.window["xmin"]) * self.move_step
+        dy = delta[1] * (self.window["ymax"] - self.window["ymin"]) * self.move_step
+        
+        # Rotacionar o vetor de movimento
+        dx_rot = dx * math.cos(theta) - dy * math.sin(theta)
+        dy_rot = dx * math.sin(theta) + dy * math.cos(theta)
+        
+        self.window["xmin"] += dx_rot
+        self.window["xmax"] += dx_rot
+        self.window["ymin"] += dy_rot
+        self.window["ymax"] += dy_rot
         self.redraw()
+
+    def save_obj(self):
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".obj",
+            filetypes=[("OBJ files", "*.obj"), ("All files", "*.*")]
+        )
+        if filename:  # Verifica se o usuário não cancelou
+            try:
+                DescritorOBJ.write_obj(self.display_file, filename)
+                messagebox.showinfo("Sucesso", f"Arquivo salvo em:\n{filename}")
+            except Exception as e:
+                messagebox.showerror("Erro", f"Falha ao salvar:\n{str(e)}")
+        else:
+            messagebox.showwarning("Aviso", "Nenhum arquivo selecionado!")
+
+    def load_obj(self):
+        filename = filedialog.askopenfilename(filetypes=[("OBJ files", "*.obj")])
+        if filename:
+            try:
+                self.display_file = DescritorOBJ.read_obj(filename)
+                self._update_object_list()
+                self.redraw()
+            except Exception as e:
+                messagebox.showerror("Erro", f"Erro ao carregar arquivo: {str(e)}")
 
     def reset_view(self):
         self.window = self.original_window.copy()
@@ -635,14 +821,29 @@ class GraphicsSystem:
         return cx, cy
 
     def viewport_transform(self, x, y):
-        window_aspect = (self.window["xmax"] - self.window["xmin"]) / (self.window["ymax"] - self.window["ymin"])
-        viewport_aspect = (self.viewport["xmax"] - self.viewport["xmin"]) / (self.viewport["ymax"] - self.viewport["ymin"])
-        scale = (self.viewport["xmax"] - self.viewport["xmin"]) / (self.window["xmax"] - self.window["xmin"]) if window_aspect > viewport_aspect else (
-            self.viewport["ymax"] - self.viewport["ymin"]) / (self.window["ymax"] - self.window["ymin"])
-        return (
-            self.viewport["xmin"] + (x - self.window["xmin"]) * scale,
-            self.viewport["ymin"] + (self.window["ymax"] - y) * scale
-        )
+        # Calcular centro da window
+        cx = (self.window["xmin"] + self.window["xmax"]) / 2
+        cy = (self.window["ymin"] + self.window["ymax"]) / 2
+        
+        # Aplicar rotação inversa
+        theta = -self.window["rotation"]
+        x_rot = (x - cx) * math.cos(theta) - (y - cy) * math.sin(theta) + cx
+        y_rot = (x - cx) * math.sin(theta) + (y - cy) * math.cos(theta) + cy
+        
+        # Mapear para viewport
+        window_width = self.window["xmax"] - self.window["xmin"]
+        window_height = self.window["ymax"] - self.window["ymin"]
+        viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
+        viewport_height = self.viewport["ymax"] - self.viewport["ymin"]
+        
+        scale_x = viewport_width / window_width
+        scale_y = viewport_height / window_height
+        scale = min(scale_x, scale_y)
+        
+        vx = self.viewport["xmin"] + (x_rot - self.window["xmin"]) * scale
+        vy = self.viewport["ymax"] - (y_rot - self.window["ymin"]) * scale
+        
+        return (vx, vy)
 
     def add_point(self):
         coords = self.parse_input()
