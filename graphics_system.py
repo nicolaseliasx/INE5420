@@ -85,8 +85,9 @@ class Line(GraphicObject):
 class Polygon(GraphicObject):
     prefix = "W"
     
-    def __init__(self, coordinates, color="#ffaa00"):
+    def __init__(self, coordinates, color="#ffaa00", filled=False):
         super().__init__(coordinates, color)
+        self.filled = filled
     
     @property
     def type(self):
@@ -94,7 +95,7 @@ class Polygon(GraphicObject):
     
     def draw(self, canvas, transform):
         coords = self.get_coordinates(transform)
-        canvas.create_polygon(coords, fill="", outline=self.color, width=2)
+        canvas.create_polygon(coords, fill=self.color if self.filled else "", outline=self.color, width=2)
 
 class DescritorOBJ:
     @staticmethod
@@ -102,6 +103,7 @@ class DescritorOBJ:
         display_file = []
         vertices = []
         color_map = {}  # Mapeia nomes de objetos para cores
+        fill_map = {}  # Mapeia nome do polígono para saber se é preenchido ou não
         elements = []    # Lista de elementos (p, l, f) com seus nomes
         current_name = None
 
@@ -123,6 +125,12 @@ class DescritorOBJ:
                 # Processamento de cores
                 elif parts[0] == 'c' and len(parts) >= 3:
                     color_map[parts[1]] = parts[2]
+                
+                # Processamento do preenchimento do polígono
+                elif parts[0] == 'fill' and len(parts) >= 3:
+                    nome = parts[1]
+                    valor = parts[2].lower() == 'true'
+                    fill_map[nome] = valor
 
                 # Processamento de elementos gráficos
                 elif parts[0] in ['p', 'l', 'f']:
@@ -153,7 +161,8 @@ class DescritorOBJ:
             elif elem_type == 'l' and len(coords) == 2:
                 obj = Line(coords, color)
             elif elem_type == 'f' and len(coords) >= 3:
-                obj = Polygon(coords, color)
+                fill = fill_map.get(name, True)
+                obj = Polygon(coords, color, fill)
             else:
                 continue  # Ignora elementos inválidos
 
@@ -208,6 +217,7 @@ class DescritorOBJ:
                         f.write(f"l {' '.join(indices)}\n")
                     elif isinstance(obj, Polygon):
                         f.write(f"f {' '.join(indices)}\n")
+                        f.write(f"fill {obj.name} {str(obj.filled)}\n")
                     else:
                         raise TypeError(f"Tipo inválido: {type(obj)}")
 
@@ -401,6 +411,10 @@ class GraphicsSystem:
 
         self.coord_entry = ttk.Entry(obj_frame, width=40)
         self.coord_entry.pack(side=tk.TOP, padx=5, fill=tk.X, expand=False)
+
+        self.fill_var = tk.BooleanVar()
+        fill_checkbox = ttk.Checkbutton(obj_frame, text="Preencher Polígono", variable=self.fill_var)
+        fill_checkbox.pack(side=tk.TOP, pady=5)
 
         # Botões de Adição de Objetos (Ponto, Linha, Polígono)
         button_frame = ttk.Frame(obj_frame)
@@ -870,9 +884,10 @@ class GraphicsSystem:
     def add_polygon(self):
         coords = self.parse_input()
         if len(coords) >= 3:
-            poligono = Polygon(coords, color=self.selected_color)
+            poligono = Polygon(coords, color=self.selected_color, filled=self.fill_var.get())
             self.display_file.append(poligono)
             self.coord_entry.delete(0, tk.END)
+            self.fill_var.set(False)
             self._update_object_list()
             self.redraw()
         else:
