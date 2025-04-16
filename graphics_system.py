@@ -240,9 +240,22 @@ class GraphicsSystem:
         self.selected_color = "#00aaff"  # Cor padrão
         
         # Configurações iniciais
-        self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50}
-        self.original_window = self.window.copy()
         self.viewport = {"xmin": 20, "ymin": 20, "xmax": self.CANVAS_WIDTH - 20, "ymax": self.CANVAS_HEIGHT - 20}
+
+        vp_width = self.viewport["xmax"] - self.viewport["xmin"]
+        vp_height = self.viewport["ymax"] - self.viewport["ymin"]
+        half_width = vp_width / 2
+        half_height = vp_height / 2
+
+        self.window = {
+            "xmin": -half_width,
+            "ymin": -half_height,
+            "xmax": half_width,
+            "ymax": half_height,
+            "rotation": 0
+        }
+        self.original_window = self.window.copy()
+
         self.display_file = []
         self.move_step = 0.1
         self.temp_transformations = []  # Lista temporária para transformações
@@ -267,9 +280,6 @@ class GraphicsSystem:
         self._create_controls()
         self._bind_events()
 
-        self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50, "rotation": 0}
-        self.original_window = self.window.copy()
-        
         # Adicionar elementos de interface para rotação
         self._create_rotation_controls()
         self._create_file_controls()
