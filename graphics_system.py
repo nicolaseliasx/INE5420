@@ -85,8 +85,9 @@ class Line(GraphicObject):
 class Polygon(GraphicObject):
     prefix = "W"
     
-    def __init__(self, coordinates, color="#ffaa00"):
+    def __init__(self, coordinates, color="#ffaa00", filled=False):
         super().__init__(coordinates, color)
+        self.filled = filled
     
     @property
     def type(self):
@@ -94,7 +95,7 @@ class Polygon(GraphicObject):
     
     def draw(self, canvas, transform):
         coords = self.get_coordinates(transform)
-        canvas.create_polygon(coords, fill="", outline=self.color, width=2)
+        canvas.create_polygon(coords, fill=self.color if self.filled else "", outline=self.color, width=2)
 
 class DescritorOBJ:
     @staticmethod
@@ -102,6 +103,7 @@ class DescritorOBJ:
         display_file = []
         vertices = []
         color_map = {}  # Mapeia nomes de objetos para cores
+        fill_map = {}  # Mapeia nome do polígono para saber se é preenchido ou não
         elements = []    # Lista de elementos (p, l, f) com seus nomes
         current_name = None
 
@@ -123,6 +125,12 @@ class DescritorOBJ:
                 # Processamento de cores
                 elif parts[0] == 'c' and len(parts) >= 3:
                     color_map[parts[1]] = parts[2]
+                
+                # Processamento do preenchimento do polígono
+                elif parts[0] == 'fill' and len(parts) >= 3:
+                    nome = parts[1]
+                    valor = parts[2].lower() == 'true'
+                    fill_map[nome] = valor
 
                 # Processamento de elementos gráficos
                 elif parts[0] in ['p', 'l', 'f']:
@@ -153,7 +161,8 @@ class DescritorOBJ:
             elif elem_type == 'l' and len(coords) == 2:
                 obj = Line(coords, color)
             elif elem_type == 'f' and len(coords) >= 3:
-                obj = Polygon(coords, color)
+                fill = fill_map.get(name, True)
+                obj = Polygon(coords, color, fill)
             else:
                 continue  # Ignora elementos inválidos
 
@@ -208,6 +217,7 @@ class DescritorOBJ:
                         f.write(f"l {' '.join(indices)}\n")
                     elif isinstance(obj, Polygon):
                         f.write(f"f {' '.join(indices)}\n")
+                        f.write(f"fill {obj.name} {str(obj.filled)}\n")
                     else:
                         raise TypeError(f"Tipo inválido: {type(obj)}")
 
@@ -219,19 +229,37 @@ class DescritorOBJ:
             return False
 
 class GraphicsSystem:
+    CANVAS_WIDTH = 775
+    CANVAS_HEIGHT = 383
+    INSIDE, LEFT, RIGHT, BOTTOM, TOP = 0, 1, 2, 4, 8
+
     def __init__(self, root):
         self.root = root
         self.root.configure(bg="#2d2d2d")
-        self.root.wm_minsize(1020, 680)
+        self.root.wm_minsize(1020, 700)
         self.selected_color = "#00aaff"  # Cor padrão
         
         # Configurações iniciais
-        self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50}
+        self.viewport = {"xmin": 20, "ymin": 20, "xmax": self.CANVAS_WIDTH - 20, "ymax": self.CANVAS_HEIGHT - 20}
+
+        vp_width = self.viewport["xmax"] - self.viewport["xmin"]
+        vp_height = self.viewport["ymax"] - self.viewport["ymin"]
+        half_width = vp_width / 2
+        half_height = vp_height / 2
+
+        self.window = {
+            "xmin": -half_width,
+            "ymin": -half_height,
+            "xmax": half_width,
+            "ymax": half_height,
+            "rotation": 0
+        }
         self.original_window = self.window.copy()
-        self.viewport = {"xmin": 50, "ymin": 50, "xmax": 850, "ymax": 650}
+
         self.display_file = []
         self.move_step = 0.1
         self.temp_transformations = []  # Lista temporária para transformações
+        self.line_clip_method = tk.StringVar(value="CS")
         
         # Configuração do tema
         self.style = ttk.Style()
@@ -247,13 +275,11 @@ class GraphicsSystem:
         self.content_frame.pack(fill=tk.BOTH, expand=True)
         
         self._create_canvas()
+        self._draw_viewport()
         self._create_object_list()
         self._create_controls()
         self._bind_events()
 
-        self.window = {"xmin": -50, "ymin": -50, "xmax": 50, "ymax": 50, "rotation": 0}
-        self.original_window = self.window.copy()
-        
         # Adicionar elementos de interface para rotação
         self._create_rotation_controls()
         self._create_file_controls()
@@ -328,6 +354,12 @@ class GraphicsSystem:
                               bg="#1a1a1a",
                               highlightthickness=0)
         self.canvas.pack(pady=10, fill=tk.BOTH, expand=True)
+    
+    def _draw_viewport(self):
+        self.canvas.create_rectangle(
+            self.viewport["xmin"], self.viewport["ymin"],
+            self.viewport["xmax"], self.viewport["ymax"],
+            outline="white", dash=(4, 2))
 
     def _create_object_list(self):
         self.list_frame = ttk.Frame(self.content_frame)
@@ -401,6 +433,17 @@ class GraphicsSystem:
 
         self.coord_entry = ttk.Entry(obj_frame, width=40)
         self.coord_entry.pack(side=tk.TOP, padx=5, fill=tk.X, expand=False)
+
+        self.fill_var = tk.BooleanVar()
+        fill_checkbox = ttk.Checkbutton(obj_frame, text="Preencher Polígono", variable=self.fill_var)
+        fill_checkbox.pack(side=tk.TOP, pady=5)
+
+        ttk.Label(obj_frame, text="Técnica de Clipagem de Retas:", style="Title.TLabel").pack(pady=(10, 0))
+        clip_radio_frame = ttk.Frame(obj_frame)
+        clip_radio_frame.pack(pady=5)
+
+        ttk.Radiobutton(clip_radio_frame, text="Cohen-Sutherland", variable=self.line_clip_method, value="CS").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(clip_radio_frame, text="Liang-Barsky", variable=self.line_clip_method, value="LB").pack(side=tk.LEFT, padx=5)
 
         # Botões de Adição de Objetos (Ponto, Linha, Polígono)
         button_frame = ttk.Frame(obj_frame)
@@ -870,13 +913,23 @@ class GraphicsSystem:
     def add_polygon(self):
         coords = self.parse_input()
         if len(coords) >= 3:
-            poligono = Polygon(coords, color=self.selected_color)
+            poligono = Polygon(coords, color=self.selected_color, filled=self.fill_var.get())
             self.display_file.append(poligono)
             self.coord_entry.delete(0, tk.END)
+            self.fill_var.set(False)
             self._update_object_list()
             self.redraw()
         else:
             messagebox.showerror("Erro de Entrada", "Para adicionar um Polígono, insira pelo menos três coordenadas.")
+
+    def clip_object(self, obj):
+        if isinstance(obj, Point):
+            return obj if self.clip_point(obj) else None
+        elif isinstance(obj, Line):
+            return self.clip_line(obj)
+        elif isinstance(obj, Polygon):
+            return self.clip_polygon(obj)
+        return None
 
     def pan(self, event, action):
         if action == "start":
@@ -919,7 +972,10 @@ class GraphicsSystem:
     def redraw(self):
         self.canvas.delete("all")
         for obj in self.display_file:
-            obj.draw(self.canvas, self.viewport_transform)
+            clipped = self.clip_object(obj)
+            if clipped:
+                clipped.draw(self.canvas, self.viewport_transform)
+        self._draw_viewport()
 
     def parse_input(self):
         try:
@@ -930,10 +986,160 @@ class GraphicsSystem:
         except:
             messagebox.showerror("Erro de Entrada", "Coordenadas inválidas! Por favor, insira coordenadas no formato correto.")
             return []
+    
+    def clip_point(self, point):
+        x, y = point.coordinates[0]
+        return (self.window["xmin"] <= x <= self.window["xmax"] and
+                self.window["ymin"] <= y <= self.window["ymax"])
+
+    def clip_line(self, line):
+        if self.line_clip_method.get() == "CS":
+            return self.clip_line_cohen_sutherland(line)
+        else:
+            return self.clip_line_liang_barsky(line)
+    
+    # Clipagem de polígonos usando o algoritmo Sutherland-Hodgeman
+    def clip_polygon(self, polygon):
+        def is_inside_left(point): return point[0] >= self.window["xmin"]
+        def is_inside_right(point): return point[0] <= self.window["xmax"]
+        def is_inside_bottom(point): return point[1] >= self.window["ymin"]
+        def is_inside_top(point): return point[1] <= self.window["ymax"]
+
+        # Aplica a clipagem do polígono contra uma única borda da window
+        def clip_edge(vertices, edge):
+            clipped_vertices = []
+
+            for i in range(len(vertices)):
+                current = vertices[i]
+                prev = vertices[i - 1]
+
+                current_inside = edge(current)
+                previous_inside = edge(prev)
+
+                if current_inside:
+                    if not previous_inside:
+                        clipped_vertices.append(compute_intersection(prev, current, edge))
+                    clipped_vertices.append(current)
+                elif previous_inside:
+                    clipped_vertices.append(compute_intersection(prev, current, edge))
+            return clipped_vertices
+
+        # Calcula o ponto de interseção entre uma aresta do polígono e uma borda da window
+        def compute_intersection(p1, p2, boundary_check):
+            x1, y1 = p1
+            x2, y2 = p2
+            if x1 == x2:
+                m = float("inf")
+            else:
+                m = (y2 - y1) / (x2 - x1)
+            
+            if boundary_check == is_inside_left:
+                x = self.window["xmin"]
+                y = m * (x - x1) + y1
+            elif boundary_check == is_inside_right:
+                x = self.window["xmax"]
+                y = m * (x - x1) + y1
+            elif boundary_check == is_inside_bottom:
+                y = self.window["ymin"]
+                x = x1 + (y - y1) / m
+            elif boundary_check == is_inside_top:
+                y = self.window["ymax"]
+                x = x1 + (y - y1) / m
+            return (x, y)
+
+        # Aplica o algoritmo em todas as bordas da window
+        clipped_vertices = polygon.coordinates
+        for edge in [is_inside_left, is_inside_right, is_inside_bottom, is_inside_top]:
+            clipped_vertices = clip_edge(clipped_vertices, edge)
+            if not clipped_vertices:
+                return None
+        return Polygon(clipped_vertices, polygon.color, polygon.filled)
+
+    def compute_out_code(self, x, y):
+        code = self.INSIDE
+        if x < self.window["xmin"]:
+            code |= self.LEFT
+        elif x > self.window["xmax"]:
+            code |= self.RIGHT
+
+        if y < self.window["ymin"]:
+            code |= self.BOTTOM
+        elif y > self.window["ymax"]:
+            code |= self.TOP
+        return code
+
+    def clip_line_cohen_sutherland(self, line):
+        (x1, y1), (x2, y2) = line.coordinates
+
+        code_start = self.compute_out_code(x1, y1)
+        code_end = self.compute_out_code(x2, y2)
+        
+        while True:
+            # Caso trivial: completamente dentro
+            if not (code_start | code_end):
+                return Line([(x1, y1), (x2, y2)])
+            
+            # Caso trivial: completamente fora
+            elif code_start & code_end:
+                return None
+            
+            # Caso parcial: calcula interseção
+            else:
+                code_out = code_start if code_start else code_end
+                if code_out & self.TOP:
+                    x = (x1 + (x2 - x1) * (self.window["ymax"] - y1) / (y2 - y1)) if y2 != y1 else x1
+                    y = self.window["ymax"]
+                elif code_out & self.BOTTOM:
+                    x = (x1 + (x2 - x1) * (self.window["ymin"] - y1) / (y2 - y1)) if y2 != y1 else x1
+                    y = self.window["ymin"]
+                elif code_out & self.RIGHT:
+                    y = (y1 + (y2 - y1) * (self.window["xmax"] - x1) / (x2 - x1)) if x2 != x1 else y1
+                    x = self.window["xmax"]
+                elif code_out & self.LEFT:
+                    y = (y1 + (y2 - y1) * (self.window["xmin"] - x1) / (x2 - x1)) if x2 != x1 else y1
+                    x = self.window["xmin"]
+                
+                if code_out == code_start:
+                    x1, y1 = x, y
+                    code_start = self.compute_out_code(x1, y1)
+                else:
+                    x2, y2 = x, y
+                    code_end = self.compute_out_code(x2, y2)
+    
+    def clip_line_liang_barsky(self, line):
+        (x1, y1), (x2, y2) = line.coordinates
+
+        dx = x2 - x1
+        dy = y2 - y1
+        p = [-dx, dx, -dy, dy]
+        q = [x1 - self.window["xmin"],
+            self.window["xmax"] - x1,
+            y1 - self.window["ymin"],
+            self.window["ymax"] - y1]
+        
+        u1, u2 = 0.0, 1.0
+        for pi, qi in zip(p, q):
+            if pi == 0:
+                if qi < 0:
+                    return None
+            else:
+                u = qi / pi
+                if pi < 0:
+                    u1 = max(u1, u)
+                else:
+                    u2 = min(u2, u)
+        if u1 > u2:
+            return None
+
+        x1 = x1 + u1 * dx
+        y1 = y1 + u1 * dy
+        x2 = x1 + u2 * dx
+        y2 = y1 + u2 * dy
+        return Line([(x1, y1), (x2, y2)])
 
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Sistema Gráfico 2D com Lista de Objetos")
-    root.geometry("1020x680")
+    root.geometry("1020x700")
     app = GraphicsSystem(root)
     root.mainloop()
