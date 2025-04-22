@@ -595,6 +595,29 @@ class GraphicsSystem:
         self.canvas.bind("<MouseWheel>", self.zoom)
         self.canvas.bind("<Button-2>", lambda e: self.pan(e, "start"))
         self.canvas.bind("<B2-Motion>", lambda e: self.pan(e, "drag"))
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
+    
+    def _on_canvas_resize(self, event):
+        new_width = event.width
+        new_height = event.height
+
+        self.CANVAS_WIDTH = new_width
+        self.CANVAS_HEIGHT = new_height
+
+        self.viewport["xmax"] = new_width - 20
+        self.viewport["ymax"] = new_height - 20
+
+        vp_width = self.viewport["xmax"] - self.viewport["xmin"]
+        vp_height = self.viewport["ymax"] - self.viewport["ymin"]
+        half_width = vp_width / 2
+        half_height = vp_height / 2
+
+        self.window["xmin"] = -half_width
+        self.window["xmax"] = half_width
+        self.window["ymin"] = -half_height
+        self.window["ymax"] = half_height
+
+        self.redraw()
         
     def _update_object_list(self):
         self.object_tree.delete(*self.object_tree.get_children())
