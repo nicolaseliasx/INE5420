@@ -97,6 +97,116 @@ class Polygon(GraphicObject):
         coords = self.get_coordinates(transform)
         canvas.create_polygon(coords, fill=self.color if self.filled else "", outline=self.color, width=2)
 
+class Curve2D(GraphicObject):
+    prefix = "C"
+    
+    def __init__(self, coordinates, color="#00aaff"):
+        super().__init__(coordinates, color)
+        self.clipped_segments = []
+    
+    @property
+    def type(self):
+        return "Curva Bezier"
+    
+    def draw(self, canvas, transform):
+        for segment in self.clipped_segments:
+            points = self.compute_bezier_points(segment)
+            for i in range(len(points) - 1):
+                x1, y1 = points[i]
+                x2, y2 = points[i+1]
+                vx1, vy1 = transform(x1, y1)
+                vx2, vy2 = transform(x2, y2)
+                canvas.create_line(vx1, vy1, vx2, vy2, 
+                                 fill=self.color, width=3, capstyle=tk.ROUND)
+
+    def get_bezier_segments(self):
+        segments = []
+        n = len(self.coordinates)
+        if n < 4:
+            return []
+        i = 0
+        while i + 3 < n:
+            segments.append(self.coordinates[i:i+4])
+            i += 3
+        return segments
+
+    def compute_bezier_points(self, control_points, steps=20):
+        points = []
+        for t in np.linspace(0, 1, steps):
+            x = ( (1-t)**3 * control_points[0][0] +
+                  3*(1-t)**2 * t * control_points[1][0] +
+                  3*(1-t)*t**2 * control_points[2][0] +
+                  t**3 * control_points[3][0] )
+            y = ( (1-t)**3 * control_points[0][1] +
+                  3*(1-t)**2 * t * control_points[1][1] +
+                  3*(1-t)*t**2 * control_points[2][1] +
+                  t**3 * control_points[3][1] )
+            points.append((x, y))
+        return points
+
+    def clip(self, clip_window, max_depth=8):
+        self.clipped_segments = []
+        segments = self.get_bezier_segments()
+        for segment in segments:
+            self._clip_segment(segment, clip_window, max_depth)
+
+    def _clip_segment(self, segment, clip_window, depth):
+        if depth == 0:
+            if self._is_visible(segment, clip_window):
+                self.clipped_segments.append(segment)
+            return
+
+        if self._is_fully_inside(segment, clip_window):
+            self.clipped_segments.append(segment)
+            return
+
+        left, right = self._de_casteljau_split(segment)
+        self._clip_segment(left, clip_window, depth-1)
+        self._clip_segment(right, clip_window, depth-1)
+
+    def _is_fully_inside(self, segment, window):
+        xmin, ymin = window["xmin"], window["ymin"]
+        xmax, ymax = window["xmax"], window["ymax"]
+        for (x, y) in segment:
+            if not (xmin <= x <= xmax and ymin <= y <= ymax):
+                return False
+        return True
+
+    def _is_visible(self, segment, window):
+        xmin, ymin = window["xmin"], window["ymin"]
+        xmax, ymax = window["xmax"], window["ymax"]
+        
+        for t in np.linspace(0, 1, 10):
+            x = ( (1-t)**3 * segment[0][0] +
+                  3*(1-t)**2 * t * segment[1][0] +
+                  3*(1-t)*t**2 * segment[2][0] +
+                  t**3 * segment[3][0] )
+            y = ( (1-t)**3 * segment[0][1] +
+                  3*(1-t)**2 * t * segment[1][1] +
+                  3*(1-t)*t**2 * segment[2][1] +
+                  t**3 * segment[3][1] )
+            if xmin <= x <= xmax and ymin <= y <= ymax:
+                return True
+        return False
+
+    def _de_casteljau_split(self, control_points):
+        points = [control_points]
+        while len(points[-1]) > 1:
+            new_points = []
+            for i in range(len(points[-1])-1):
+                x0, y0 = points[-1][i]
+                x1, y1 = points[-1][i+1]
+                new_points.append((
+                    (x0 + x1)/2,
+                    (y0 + y1)/2
+                ))
+            points.append(new_points)
+        
+        left = [points[i][0] for i in range(len(points))]
+        right = [points[i][-1] for i in reversed(range(len(points)))]
+        
+        return left, right
+
 class DescritorOBJ:
     @staticmethod
     def read_obj(filename):
@@ -469,6 +579,9 @@ class GraphicsSystem:
         
         ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
 
+        ttk.Button(button_frame, text="Curva Bezier", 
+         command=self.add_bezier_curve).pack(side=tk.LEFT, padx=2)
+
     def choose_color(self):
         color = askcolor()[1]
         if color:
@@ -482,6 +595,29 @@ class GraphicsSystem:
         self.canvas.bind("<MouseWheel>", self.zoom)
         self.canvas.bind("<Button-2>", lambda e: self.pan(e, "start"))
         self.canvas.bind("<B2-Motion>", lambda e: self.pan(e, "drag"))
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
+    
+    def _on_canvas_resize(self, event):
+        new_width = event.width
+        new_height = event.height
+
+        self.CANVAS_WIDTH = new_width
+        self.CANVAS_HEIGHT = new_height
+
+        self.viewport["xmax"] = new_width - 20
+        self.viewport["ymax"] = new_height - 20
+
+        vp_width = self.viewport["xmax"] - self.viewport["xmin"]
+        vp_height = self.viewport["ymax"] - self.viewport["ymin"]
+        half_width = vp_width / 2
+        half_height = vp_height / 2
+
+        self.window["xmin"] = -half_width
+        self.window["xmax"] = half_width
+        self.window["ymin"] = -half_height
+        self.window["ymax"] = half_height
+
+        self.redraw()
         
     def _update_object_list(self):
         self.object_tree.delete(*self.object_tree.get_children())
@@ -510,6 +646,17 @@ class GraphicsSystem:
         self.window["ymin"] += dy_rot
         self.window["ymax"] += dy_rot
         self.redraw()
+
+    def add_bezier_curve(self):
+        coords = self.parse_input()
+        if len(coords) >= 4 and (len(coords) - 4) % 3 == 0:
+            curva = Curve2D(coords, color=self.selected_color)
+            self.display_file.append(curva)
+            self.coord_entry.delete(0, tk.END)
+            self._update_object_list()
+            self.redraw()
+        else:
+            messagebox.showerror("Erro de Entrada", "Uma curva Bézier requer pelo menos 4 pontos de controle, e cada segmento adicional requer 3 pontos.")
 
     def save_obj(self):
         filename = filedialog.asksaveasfilename(
@@ -929,7 +1076,18 @@ class GraphicsSystem:
             return self.clip_line(obj)
         elif isinstance(obj, Polygon):
             return self.clip_polygon(obj)
+        elif isinstance(obj, Curve2D):
+            return self.clip_curve(obj)
         return None
+    
+    def clip_curve(self, curve):
+        curve.clip({
+            "xmin": self.window["xmin"],
+            "ymin": self.window["ymin"],
+            "xmax": self.window["xmax"],
+            "ymax": self.window["ymax"]
+        })
+        return curve
 
     def pan(self, event, action):
         if action == "start":
