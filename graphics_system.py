@@ -228,9 +228,48 @@ class DescritorOBJ:
             messagebox.showerror("Erro", f"Falha ao salvar:\n{str(e)}")
             return False
 
+class Curve2D(GraphicObject):
+    prefix = "C"
+    
+    def __init__(self, coordinates, color="#00aaff"):
+        super().__init__(coordinates, color)
+    
+    @property
+    def type(self):
+        return "Curva Bezier"
+    
+    def draw(self, canvas, transform):
+        # O desenho será tratado diretamente no método redraw do GraphicsSystem
+        pass
+
+    def get_bezier_segments(self):
+        segments = []
+        n = len(self.coordinates)
+        if n < 4:
+            return []
+        i = 0
+        while i + 3 < n:
+            segments.append(self.coordinates[i:i+4])
+            i += 3
+        return segments
+
+    def compute_bezier_points(self, control_points, steps=20):
+        points = []
+        for t in np.linspace(0, 1, steps):
+            x = ( (1-t)**3 * control_points[0][0] +
+                  3*(1-t)**2 * t * control_points[1][0] +
+                  3*(1-t)*t**2 * control_points[2][0] +
+                  t**3 * control_points[3][0] )
+            y = ( (1-t)**3 * control_points[0][1] +
+                  3*(1-t)**2 * t * control_points[1][1] +
+                  3*(1-t)*t**2 * control_points[2][1] +
+                  t**3 * control_points[3][1] )
+            points.append((x, y))
+        return points
+
 class GraphicsSystem:
-    CANVAS_WIDTH = 775
-    CANVAS_HEIGHT = 383
+    CANVAS_WIDTH = 1680
+    CANVAS_HEIGHT = 740
     INSIDE, LEFT, RIGHT, BOTTOM, TOP = 0, 1, 2, 4, 8
 
     def __init__(self, root):
@@ -469,6 +508,9 @@ class GraphicsSystem:
         
         ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
 
+        ttk.Button(button_frame, text="Curva Bezier", 
+         command=self.add_bezier_curve).pack(side=tk.LEFT, padx=2)
+
     def choose_color(self):
         color = askcolor()[1]
         if color:
@@ -510,6 +552,17 @@ class GraphicsSystem:
         self.window["ymin"] += dy_rot
         self.window["ymax"] += dy_rot
         self.redraw()
+
+    def add_bezier_curve(self):
+        coords = self.parse_input()
+        if len(coords) >= 4 and (len(coords) - 4) % 3 == 0:
+            curva = Curve2D(coords, color=self.selected_color)
+            self.display_file.append(curva)
+            self.coord_entry.delete(0, tk.END)
+            self._update_object_list()
+            self.redraw()
+        else:
+            messagebox.showerror("Erro de Entrada", "Uma curva Bézier requer pelo menos 4 pontos de controle, e cada segmento adicional requer 3 pontos.")
 
     def save_obj(self):
         filename = filedialog.asksaveasfilename(
@@ -972,9 +1025,19 @@ class GraphicsSystem:
     def redraw(self):
         self.canvas.delete("all")
         for obj in self.display_file:
-            clipped = self.clip_object(obj)
-            if clipped:
-                clipped.draw(self.canvas, self.viewport_transform)
+            if isinstance(obj, Curve2D):
+                segments = obj.get_bezier_segments()
+                for segment in segments:
+                    points = obj.compute_bezier_points(segment)
+                    for i in range(len(points) - 1):
+                        line = Line([points[i], points[i+1]], obj.color)
+                        clipped_line = self.clip_line(line)
+                        if clipped_line:
+                            clipped_line.draw(self.canvas, self.viewport_transform)
+            else:
+                clipped = self.clip_object(obj)
+                if clipped:
+                    clipped.draw(self.canvas, self.viewport_transform)
         self._draw_viewport()
 
     def parse_input(self):
