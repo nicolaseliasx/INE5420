@@ -207,14 +207,163 @@ class Curve2D(GraphicObject):
         
         return left, right
 
+
+class BSpline(GraphicObject):
+    prefix = "B"
+    
+    def __init__(self, coordinates, color="#00aaff", degree=3):
+        super().__init__(coordinates, color)
+        self.degree = degree
+        self._validate_input()
+        self.curve_points = []
+        self._compute_entire_curve()
+        
+    def _validate_input(self):
+        if len(self.coordinates) < 4:
+            raise ValueError("B-Spline requer pelo menos 4 pontos de controle")
+        if len(self.coordinates) < self.degree + 1:
+            raise ValueError(f"Grau {self.degree} requer pelo menos {self.degree + 1} pontos")
+
+    def _compute_entire_curve(self):
+        """Pré-computa todos os pontos da curva usando Forward Differences"""
+        n = len(self.coordinates)
+        self.curve_points = []
+        
+        for i in range(n - self.degree):
+            segment = self.coordinates[i:i+self.degree+1]
+            self.curve_points.extend(self._compute_segment(segment))
+            
+        self._remove_duplicate_points()
+
+    def _compute_segment(self, control_points, steps=100):
+        """Calcula um segmento da curva com Forward Differences"""
+        if len(control_points) != 4:
+            return []
+            
+        coeffs = self._calculate_coefficients(control_points)
+        points = []
+        
+        # Parâmetros de diferença
+        delta = 1.0 / steps
+        delta2 = delta * delta
+        delta3 = delta * delta * delta
+        
+        # Inicialização para X
+        x = coeffs['dx']  # Termo constante dx (d)
+        dx = (
+            coeffs['cx'] * delta +
+            coeffs['bx'] * delta2 +
+            coeffs['ax'] * delta3
+        )
+        d2x = (
+            2 * coeffs['bx'] * delta2 +
+            6 * coeffs['ax'] * delta3
+        )
+        d3x = 6 * coeffs['ax'] * delta3
+        
+        # Inicialização para Y
+        y = coeffs['dy']  # Termo constante dy (d)
+        dy = (
+            coeffs['cy'] * delta +
+            coeffs['by'] * delta2 +
+            coeffs['ay'] * delta3
+        )
+        d2y = (
+            2 * coeffs['by'] * delta2 +
+            6 * coeffs['ay'] * delta3
+        )
+        d3y = 6 * coeffs['ay'] * delta3
+        
+        # Geração dos pontos
+        for _ in range(steps):
+            points.append((x, y))
+            x += dx
+            dx += d2x
+            d2x += d3x
+            
+            y += dy
+            dy += d2y
+            d2y += d3y
+            
+        return points
+
+
+    def _calculate_coefficients(self, control_points):
+        """Calcula os coeficientes para B-Spline cúbica uniforme"""
+        p0, p1, p2, p3 = control_points
+        
+        return {
+            # Coeficientes para X
+            'ax': (-p0[0] + 3*p1[0] - 3*p2[0] + p3[0]) / 6,
+            'bx': (3*p0[0] - 6*p1[0] + 3*p2[0]) / 6,
+            'cx': (-3*p0[0] + 3*p2[0]) / 6,
+            'dx': (p0[0] + 4*p1[0] + p2[0]) / 6,
+            
+            # Coeficientes para Y
+            'ay': (-p0[1] + 3*p1[1] - 3*p2[1] + p3[1]) / 6,
+            'by': (3*p0[1] - 6*p1[1] + 3*p2[1]) / 6,
+            'cy': (-3*p0[1] + 3*p2[1]) / 6,
+            'dy': (p0[1] + 4*p1[1] + p2[1]) / 6
+        }
+
+    def _remove_duplicate_points(self):
+        """Remove pontos duplicados para suavização"""
+        unique_points = []
+        prev = None
+        for p in self.curve_points:
+            if prev is None or abs(p[0]-prev[0]) > 1e-6 or abs(p[1]-prev[1]) > 1e-6:
+                unique_points.append(p)
+                prev = p
+        self.curve_points = unique_points
+
+    @property
+    def type(self):
+        return "B-Spline"
+
+    def draw(self, canvas, transform):
+        if not self.curve_points:
+            return
+            
+        visible_points = []
+        for x, y in self.curve_points:
+            if self._point_inside_clip_window(x, y):
+                tx, ty = transform(x, y)
+                visible_points.extend([tx, ty])
+        
+        if len(visible_points) >= 4:
+            canvas.create_line(
+                *visible_points,
+                fill=self.color,
+                width=3,
+                smooth=True,
+                splinesteps=100
+            )
+
+    def _point_inside_clip_window(self, x, y):
+        return (self.window["xmin"] <= x <= self.window["xmax"] and
+                self.window["ymin"] <= y <= self.window["ymax"])
+
+    def clip(self, clip_window):
+        """Clipagem otimizada usando bounding box dos pontos de controle"""
+        x_coords = [p[0] for p in self.coordinates]
+        y_coords = [p[1] for p in self.coordinates]
+        
+        self.visible = not (
+            max(x_coords) < clip_window["xmin"] or
+            min(x_coords) > clip_window["xmax"] or
+            max(y_coords) < clip_window["ymin"] or
+            min(y_coords) > clip_window["ymax"]
+        )
+        self.window = clip_window
+
 class DescritorOBJ:
     @staticmethod
     def read_obj(filename):
         display_file = []
         vertices = []
         color_map = {}  # Mapeia nomes de objetos para cores
-        fill_map = {}  # Mapeia nome do polígono para saber se é preenchido ou não
-        elements = []    # Lista de elementos (p, l, f) com seus nomes
+        fill_map = {}    # Mapeia nome do polígono para saber se é preenchido
+        elements = []     # Lista de elementos (p, l, f, c, b) com seus nomes
         current_name = None
 
         with open(filename, 'r') as f:
@@ -243,7 +392,7 @@ class DescritorOBJ:
                     fill_map[nome] = valor
 
                 # Processamento de elementos gráficos
-                elif parts[0] in ['p', 'l', 'f']:
+                elif parts[0] in ['p', 'l', 'f', 'c', 'b']:
                     element_type = parts[0]
                     indices = [int(part.split('/')[0]) for part in parts[1:]]
                     elements.append((element_type, indices))
@@ -254,11 +403,13 @@ class DescritorOBJ:
             # Obter coordenadas reais (índices são 1-based)
             coords = [vertices[idx-1] for idx in indices]
             
-            # Gerar nome sequencial (P1, L2, W3, W4, etc)
+            # Gerar nome sequencial (P1, L2, W3, C4, B5, etc)
             obj_prefix = {
                 'p': 'P',
                 'l': 'L',
-                'f': 'W'
+                'f': 'W',
+                'c': 'C',
+                'b': 'B'
             }[elem_type]
             obj_number = i + 1
             name = f"{obj_prefix}{obj_number}"
@@ -273,6 +424,10 @@ class DescritorOBJ:
             elif elem_type == 'f' and len(coords) >= 3:
                 fill = fill_map.get(name, True)
                 obj = Polygon(coords, color, fill)
+            elif elem_type == 'c' and len(coords) >= 4 and (len(coords) - 4) % 3 == 0:
+                obj = Curve2D(coords, color)
+            elif elem_type == 'b' and len(coords) >= 4:
+                obj = BSpline(coords, color)
             else:
                 continue  # Ignora elementos inválidos
 
@@ -316,7 +471,7 @@ class DescritorOBJ:
                 for obj in display_file:
                     f.write(f"c {obj.name} {obj.color}\n")
 
-                # Escreve elementos (pontos, linhas, polígonos)
+                # Escreve elementos (pontos, linhas, polígonos, curvas)
                 for obj in display_file:
                     # Obtém índices dos vértices do objeto
                     indices = [str(vertex_map[coord]) for coord in obj.coordinates]
@@ -328,6 +483,10 @@ class DescritorOBJ:
                     elif isinstance(obj, Polygon):
                         f.write(f"f {' '.join(indices)}\n")
                         f.write(f"fill {obj.name} {str(obj.filled)}\n")
+                    elif isinstance(obj, Curve2D):
+                        f.write(f"c {' '.join(indices)}\n")
+                    elif isinstance(obj, BSpline):
+                        f.write(f"b {' '.join(indices)}\n")
                     else:
                         raise TypeError(f"Tipo inválido: {type(obj)}")
 
@@ -581,6 +740,9 @@ class GraphicsSystem:
 
         ttk.Button(button_frame, text="Curva Bezier", 
          command=self.add_bezier_curve).pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(button_frame, text="B-Spline", 
+                command=self.add_bspline).pack(side=tk.LEFT, padx=2)
 
     def choose_color(self):
         color = askcolor()[1]
@@ -1078,7 +1240,18 @@ class GraphicsSystem:
             return self.clip_polygon(obj)
         elif isinstance(obj, Curve2D):
             return self.clip_curve(obj)
+        elif isinstance(obj, BSpline):
+            return self.clip_bspline(obj)
         return None
+
+    def clip_bspline(self, bspline):
+        bspline.clip({
+            "xmin": self.window["xmin"],
+            "ymin": self.window["ymin"],
+            "xmax": self.window["xmax"],
+            "ymax": self.window["ymax"]
+        })
+        return bspline
     
     def clip_curve(self, curve):
         curve.clip({
@@ -1294,6 +1467,18 @@ class GraphicsSystem:
         x2 = x1 + u2 * dx
         y2 = y1 + u2 * dy
         return Line([(x1, y1), (x2, y2)])
+
+    
+    def add_bspline(self):
+        coords = self.parse_input()
+        try:
+            bspline = BSpline(coords, color=self.selected_color)
+            self.display_file.append(bspline)
+            self.coord_entry.delete(0, tk.END)
+            self._update_object_list()
+            self.redraw()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao criar B-Spline:\n{str(e)}")
 
 if __name__ == "__main__":
     root = tk.Tk()
