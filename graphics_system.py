@@ -1,501 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from abc import ABC, abstractmethod
 from tkinter import filedialog
 import numpy as np
 import math
 from tkinter.colorchooser import askcolor
+from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, ObjectType
+from descritor_obj import DescritorOBJ
 
-class GraphicObject(ABC):
-    _counter = 0  # Contador estático compartilhado
-    
-    def __init__(self, coordinates, color="#00aaff"):
-        self.coordinates = coordinates
-        self.color = color
-        self._name = None
-        self._generate_name()
-        
-    def _generate_name(self):
-        GraphicObject._counter += 1
-        self._name = f"{self.prefix}{GraphicObject._counter}"
-    
-    @property
-    @abstractmethod
-    def prefix(self):
-        pass
-    
-    @property
-    def name(self):
-        return self._name
-    
-    @property
-    @abstractmethod
-    def type(self):
-        pass
-    
-    @abstractmethod
-    def draw(self, canvas, transform):
-        pass
-
-    def get_coordinates(self, transform):
-        coords = []
-        for x, y in self.coordinates:
-            vx, vy = transform(x, y)
-            coords.extend([vx, vy])
-        if len(self.coordinates) >= 3:
-            x0, y0 = self.coordinates[0]
-            vx0, vy0 = transform(x0, y0)
-            coords.extend([vx0, vy0])
-        return coords
-
-    @classmethod
-    def reset_counter(cls):
-        cls._counter = 0
-
-class Point(GraphicObject):
-    prefix = "P"
-    
-    def __init__(self, coordinates, color="#00aaff"):
-        super().__init__(coordinates, color)
-    
-    @property
-    def type(self):
-        return "Ponto"
-    
-    def draw(self, canvas, transform):
-        vx, vy = self.get_coordinates(transform)
-        canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
-                         fill=self.color, outline="#005533", width=2)
-
-class Line(GraphicObject):
-    prefix = "L"
-    
-    def __init__(self, coordinates, color="#00aaff"):
-        super().__init__(coordinates, color)
-    
-    @property
-    def type(self):
-        return "Linha"
-    
-    def draw(self, canvas, transform):
-        vx1, vy1, vx2, vy2 = self.get_coordinates(transform)
-        canvas.create_line(vx1, vy1, vx2, vy2, 
-                         fill=self.color, width=3, capstyle=tk.ROUND)
-
-class Polygon(GraphicObject):
-    prefix = "W"
-    
-    def __init__(self, coordinates, color="#ffaa00", filled=False):
-        super().__init__(coordinates, color)
-        self.filled = filled
-    
-    @property
-    def type(self):
-        return "Polígono"
-    
-    def draw(self, canvas, transform):
-        coords = self.get_coordinates(transform)
-        canvas.create_polygon(coords, fill=self.color if self.filled else "", outline=self.color, width=2)
-
-class Curve2D(GraphicObject):
-    prefix = "C"
-    
-    def __init__(self, coordinates, color="#00aaff"):
-        super().__init__(coordinates, color)
-        self.clipped_segments = []
-    
-    @property
-    def type(self):
-        return "Curva Bezier"
-    
-    def draw(self, canvas, transform):
-        for segment in self.clipped_segments:
-            points = self.compute_bezier_points(segment)
-            for i in range(len(points) - 1):
-                x1, y1 = points[i]
-                x2, y2 = points[i+1]
-                vx1, vy1 = transform(x1, y1)
-                vx2, vy2 = transform(x2, y2)
-                canvas.create_line(vx1, vy1, vx2, vy2, 
-                                 fill=self.color, width=3, capstyle=tk.ROUND)
-
-    def get_bezier_segments(self):
-        segments = []
-        n = len(self.coordinates)
-        if n < 4:
-            return []
-        i = 0
-        while i + 3 < n:
-            segments.append(self.coordinates[i:i+4])
-            i += 3
-        return segments
-
-    def compute_bezier_points(self, control_points, steps=20):
-        points = []
-        for t in np.linspace(0, 1, steps):
-            x = ( (1-t)**3 * control_points[0][0] +
-                  3*(1-t)**2 * t * control_points[1][0] +
-                  3*(1-t)*t**2 * control_points[2][0] +
-                  t**3 * control_points[3][0] )
-            y = ( (1-t)**3 * control_points[0][1] +
-                  3*(1-t)**2 * t * control_points[1][1] +
-                  3*(1-t)*t**2 * control_points[2][1] +
-                  t**3 * control_points[3][1] )
-            points.append((x, y))
-        return points
-
-    def clip(self, clip_window, max_depth=8):
-        self.clipped_segments = []
-        segments = self.get_bezier_segments()
-        for segment in segments:
-            self._clip_segment(segment, clip_window, max_depth)
-
-    def _clip_segment(self, segment, clip_window, depth):
-        if depth == 0:
-            if self._is_visible(segment, clip_window):
-                self.clipped_segments.append(segment)
-            return
-
-        if self._is_fully_inside(segment, clip_window):
-            self.clipped_segments.append(segment)
-            return
-
-        left, right = self._de_casteljau_split(segment)
-        self._clip_segment(left, clip_window, depth-1)
-        self._clip_segment(right, clip_window, depth-1)
-
-    def _is_fully_inside(self, segment, window):
-        xmin, ymin = window["xmin"], window["ymin"]
-        xmax, ymax = window["xmax"], window["ymax"]
-        for (x, y) in segment:
-            if not (xmin <= x <= xmax and ymin <= y <= ymax):
-                return False
-        return True
-
-    def _is_visible(self, segment, window):
-        xmin, ymin = window["xmin"], window["ymin"]
-        xmax, ymax = window["xmax"], window["ymax"]
-        
-        for t in np.linspace(0, 1, 10):
-            x = ( (1-t)**3 * segment[0][0] +
-                  3*(1-t)**2 * t * segment[1][0] +
-                  3*(1-t)*t**2 * segment[2][0] +
-                  t**3 * segment[3][0] )
-            y = ( (1-t)**3 * segment[0][1] +
-                  3*(1-t)**2 * t * segment[1][1] +
-                  3*(1-t)*t**2 * segment[2][1] +
-                  t**3 * segment[3][1] )
-            if xmin <= x <= xmax and ymin <= y <= ymax:
-                return True
-        return False
-
-    def _de_casteljau_split(self, control_points):
-        points = [control_points]
-        while len(points[-1]) > 1:
-            new_points = []
-            for i in range(len(points[-1])-1):
-                x0, y0 = points[-1][i]
-                x1, y1 = points[-1][i+1]
-                new_points.append((
-                    (x0 + x1)/2,
-                    (y0 + y1)/2
-                ))
-            points.append(new_points)
-        
-        left = [points[i][0] for i in range(len(points))]
-        right = [points[i][-1] for i in reversed(range(len(points)))]
-        
-        return left, right
-
-
-class BSpline(GraphicObject):
-    prefix = "B"
-    
-    def __init__(self, coordinates, color="#00aaff", degree=3):
-        super().__init__(coordinates, color)
-        self.degree = degree
-        self._validate_input()
-        self.curve_points = []
-        self._compute_entire_curve()
-        
-    def _validate_input(self):
-        if len(self.coordinates) < 4:
-            raise ValueError("B-Spline requer pelo menos 4 pontos de controle")
-        if len(self.coordinates) < self.degree + 1:
-            raise ValueError(f"Grau {self.degree} requer pelo menos {self.degree + 1} pontos")
-
-    def _compute_entire_curve(self):
-        """Pré-computa todos os pontos da curva usando Forward Differences"""
-        n = len(self.coordinates)
-        self.curve_points = []
-        
-        for i in range(n - self.degree):
-            segment = self.coordinates[i:i+self.degree+1]
-            self.curve_points.extend(self._compute_segment(segment))
-            
-        self._remove_duplicate_points()
-
-    def _compute_segment(self, control_points, steps=100):
-        """Calcula um segmento da curva com Forward Differences"""
-        if len(control_points) != 4:
-            return []
-            
-        coeffs = self._calculate_coefficients(control_points)
-        points = []
-        
-        # Parâmetros de diferença
-        delta = 1.0 / steps
-        delta2 = delta * delta
-        delta3 = delta * delta * delta
-        
-        # Inicialização para X
-        x = coeffs['dx']  # Termo constante dx (d)
-        dx = (
-            coeffs['cx'] * delta +
-            coeffs['bx'] * delta2 +
-            coeffs['ax'] * delta3
-        )
-        d2x = (
-            2 * coeffs['bx'] * delta2 +
-            6 * coeffs['ax'] * delta3
-        )
-        d3x = 6 * coeffs['ax'] * delta3
-        
-        # Inicialização para Y
-        y = coeffs['dy']  # Termo constante dy (d)
-        dy = (
-            coeffs['cy'] * delta +
-            coeffs['by'] * delta2 +
-            coeffs['ay'] * delta3
-        )
-        d2y = (
-            2 * coeffs['by'] * delta2 +
-            6 * coeffs['ay'] * delta3
-        )
-        d3y = 6 * coeffs['ay'] * delta3
-        
-        # Geração dos pontos
-        for _ in range(steps):
-            points.append((x, y))
-            x += dx
-            dx += d2x
-            d2x += d3x
-            
-            y += dy
-            dy += d2y
-            d2y += d3y
-            
-        return points
-
-
-    def _calculate_coefficients(self, control_points):
-        """Calcula os coeficientes para B-Spline cúbica uniforme"""
-        p0, p1, p2, p3 = control_points
-        
-        return {
-            # Coeficientes para X
-            'ax': (-p0[0] + 3*p1[0] - 3*p2[0] + p3[0]) / 6,
-            'bx': (3*p0[0] - 6*p1[0] + 3*p2[0]) / 6,
-            'cx': (-3*p0[0] + 3*p2[0]) / 6,
-            'dx': (p0[0] + 4*p1[0] + p2[0]) / 6,
-            
-            # Coeficientes para Y
-            'ay': (-p0[1] + 3*p1[1] - 3*p2[1] + p3[1]) / 6,
-            'by': (3*p0[1] - 6*p1[1] + 3*p2[1]) / 6,
-            'cy': (-3*p0[1] + 3*p2[1]) / 6,
-            'dy': (p0[1] + 4*p1[1] + p2[1]) / 6
-        }
-
-    def _remove_duplicate_points(self):
-        """Remove pontos duplicados para suavização"""
-        unique_points = []
-        prev = None
-        for p in self.curve_points:
-            if prev is None or abs(p[0]-prev[0]) > 1e-6 or abs(p[1]-prev[1]) > 1e-6:
-                unique_points.append(p)
-                prev = p
-        self.curve_points = unique_points
-
-    @property
-    def type(self):
-        return "B-Spline"
-
-    def draw(self, canvas, transform):
-        if not self.curve_points:
-            return
-            
-        visible_points = []
-        for x, y in self.curve_points:
-            if self._point_inside_clip_window(x, y):
-                tx, ty = transform(x, y)
-                visible_points.extend([tx, ty])
-        
-        if len(visible_points) >= 4:
-            canvas.create_line(
-                *visible_points,
-                fill=self.color,
-                width=3,
-                smooth=True,
-                splinesteps=100
-            )
-
-    def _point_inside_clip_window(self, x, y):
-        return (self.window["xmin"] <= x <= self.window["xmax"] and
-                self.window["ymin"] <= y <= self.window["ymax"])
-
-    def clip(self, clip_window):
-        """Clipagem otimizada usando bounding box dos pontos de controle"""
-        x_coords = [p[0] for p in self.coordinates]
-        y_coords = [p[1] for p in self.coordinates]
-        
-        self.visible = not (
-            max(x_coords) < clip_window["xmin"] or
-            min(x_coords) > clip_window["xmax"] or
-            max(y_coords) < clip_window["ymin"] or
-            min(y_coords) > clip_window["ymax"]
-        )
-        self.window = clip_window
-
-class DescritorOBJ:
-    @staticmethod
-    def read_obj(filename):
-        display_file = []
-        vertices = []
-        color_map = {}  # Mapeia nomes de objetos para cores
-        fill_map = {}    # Mapeia nome do polígono para saber se é preenchido
-        elements = []     # Lista de elementos (p, l, f, c, b) com seus nomes
-        current_name = None
-
-        with open(filename, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-
-                parts = line.split()
-                if not parts:
-                    continue
-
-                # Processamento de vértices
-                if parts[0] == 'v':
-                    x, y = map(float, parts[1:3])
-                    vertices.append((x, y))
-
-                # Processamento de cores
-                elif parts[0] == 'c' and len(parts) >= 3:
-                    color_map[parts[1]] = parts[2]
-                
-                # Processamento do preenchimento do polígono
-                elif parts[0] == 'fill' and len(parts) >= 3:
-                    nome = parts[1]
-                    valor = parts[2].lower() == 'true'
-                    fill_map[nome] = valor
-
-                # Processamento de elementos gráficos
-                elif parts[0] in ['p', 'l', 'f', 'c', 'b']:
-                    element_type = parts[0]
-                    indices = [int(part.split('/')[0]) for part in parts[1:]]
-                    elements.append((element_type, indices))
-
-        # Criar objetos gráficos
-        max_counter = 0
-        for i, (elem_type, indices) in enumerate(elements):
-            # Obter coordenadas reais (índices são 1-based)
-            coords = [vertices[idx-1] for idx in indices]
-            
-            # Gerar nome sequencial (P1, L2, W3, C4, B5, etc)
-            obj_prefix = {
-                'p': 'P',
-                'l': 'L',
-                'f': 'W',
-                'c': 'C',
-                'b': 'B'
-            }[elem_type]
-            obj_number = i + 1
-            name = f"{obj_prefix}{obj_number}"
-            
-            # Criar objeto com a cor correspondente
-            color = color_map.get(name, "#00aaff")
-
-            if elem_type == 'p' and len(coords) == 1:
-                obj = Point(coords, color)
-            elif elem_type == 'l' and len(coords) == 2:
-                obj = Line(coords, color)
-            elif elem_type == 'f' and len(coords) >= 3:
-                fill = fill_map.get(name, True)
-                obj = Polygon(coords, color, fill)
-            elif elem_type == 'c' and len(coords) >= 4 and (len(coords) - 4) % 3 == 0:
-                obj = Curve2D(coords, color)
-            elif elem_type == 'b' and len(coords) >= 4:
-                obj = BSpline(coords, color)
-            else:
-                continue  # Ignora elementos inválidos
-
-            # Atualizar nome e contador
-            obj._name = name
-            max_counter = max(max_counter, obj_number)
-            display_file.append(obj)
-
-        # Atualizar contador global de objetos
-        GraphicObject._counter = max_counter
-
-        return display_file
-    
-    @staticmethod
-    def write_obj(display_file, filename):
-        try:
-            if not display_file:
-                raise ValueError("Não há objetos para salvar")
-
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write("# Sistema Gráfico - Arquivo OBJ\n")
-                f.write("o CenaCompleta\n")  # Um único objeto para toda a cena
-
-                # Escreve todos os vértices primeiro
-                vertex_index = 1
-                all_vertices = []  # Armazena todos os vértices em ordem
-                vertex_map = {}    # Evita vértices duplicados
-
-                for obj in display_file:
-                    for coord in obj.coordinates:
-                        if coord not in vertex_map:
-                            all_vertices.append(coord)
-                            vertex_map[coord] = vertex_index
-                            vertex_index += 1
-
-                # Escreve vértices no arquivo
-                for x, y in all_vertices:
-                    f.write(f"v {x:.2f} {y:.2f} 0.0\n")
-
-                # Escreve cores personalizadas (formato extendido)
-                for obj in display_file:
-                    f.write(f"c {obj.name} {obj.color}\n")
-
-                # Escreve elementos (pontos, linhas, polígonos, curvas)
-                for obj in display_file:
-                    # Obtém índices dos vértices do objeto
-                    indices = [str(vertex_map[coord]) for coord in obj.coordinates]
-                    
-                    if isinstance(obj, Point):
-                        f.write(f"p {' '.join(indices)}\n")
-                    elif isinstance(obj, Line):
-                        f.write(f"l {' '.join(indices)}\n")
-                    elif isinstance(obj, Polygon):
-                        f.write(f"f {' '.join(indices)}\n")
-                        f.write(f"fill {obj.name} {str(obj.filled)}\n")
-                    elif isinstance(obj, Curve2D):
-                        f.write(f"c {' '.join(indices)}\n")
-                    elif isinstance(obj, BSpline):
-                        f.write(f"b {' '.join(indices)}\n")
-                    else:
-                        raise TypeError(f"Tipo inválido: {type(obj)}")
-
-                f.write("\n# Fim do arquivo\n")
-                return True
-
-        except Exception as e:
-            messagebox.showerror("Erro", f"Falha ao salvar:\n{str(e)}")
-            return False
 
 class GraphicsSystem:
     CANVAS_WIDTH = 775
@@ -547,32 +58,9 @@ class GraphicsSystem:
         self._draw_viewport()
         self._create_object_list()
         self._create_controls()
+
         self._bind_events()
 
-        # Adicionar elementos de interface para rotação
-        self._create_rotation_controls()
-        self._create_file_controls()
-
-    def _create_rotation_controls(self):
-        rotation_frame = ttk.Frame(self.control_frame)
-        rotation_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        ttk.Label(rotation_frame, text="Rotação Window", style="Title.TLabel").grid(row=0, column=0, pady=5)
-        
-        self.rotation_entry = ttk.Entry(rotation_frame, width=8)
-        self.rotation_entry.grid(row=1, column=0, padx=2)
-        ttk.Button(rotation_frame, text="Aplicar", 
-                 command=self.apply_window_rotation).grid(row=1, column=1, padx=2)
-
-    def _create_file_controls(self):
-        file_frame = ttk.Frame(self.control_frame)
-        file_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        ttk.Button(file_frame, text="Salvar OBJ", 
-                 command=self.save_obj).pack(side=tk.LEFT, padx=2)
-        ttk.Button(file_frame, text="Carregar OBJ", 
-                 command=self.load_obj).pack(side=tk.LEFT, padx=2)
-        
     def apply_window_rotation(self):
         try:
             angle = float(self.rotation_entry.get())
@@ -651,6 +139,8 @@ class GraphicsSystem:
         self._create_separator()
         self._create_move_controls()
         self._create_separator()
+        self._create_rotation_controls()
+        self._create_separator()
         self._create_object_controls()
     
     def _create_view_controls(self):
@@ -692,42 +182,24 @@ class GraphicsSystem:
 
     def _create_object_controls(self):
         obj_frame = ttk.Frame(self.control_frame)
-        obj_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        obj_frame.pack(side=tk.LEFT, padx=5)
 
         obj_label = ttk.Label(obj_frame, text="Adicionar Objetos", style="Title.TLabel")
         obj_label.pack(side=tk.TOP, pady=5)
 
-        coords_label = ttk.Label(obj_frame, text="Insira as coordenadas no formato \"(x1, y1), (x2, y2), ...\":", style="CoordsLabel.TLabel")
-        coords_label.pack(side=tk.TOP, pady=5)
-
-        self.coord_entry = ttk.Entry(obj_frame, width=40)
-        self.coord_entry.pack(side=tk.TOP, padx=5, fill=tk.X, expand=False)
-
-        self.fill_var = tk.BooleanVar()
-        fill_checkbox = ttk.Checkbutton(obj_frame, text="Preencher Polígono", variable=self.fill_var)
-        fill_checkbox.pack(side=tk.TOP, pady=5)
-
-        ttk.Label(obj_frame, text="Técnica de Clipagem de Retas:", style="Title.TLabel").pack(pady=(10, 0))
-        clip_radio_frame = ttk.Frame(obj_frame)
-        clip_radio_frame.pack(pady=5)
-
-        ttk.Radiobutton(clip_radio_frame, text="Cohen-Sutherland", variable=self.line_clip_method, value="CS").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(clip_radio_frame, text="Liang-Barsky", variable=self.line_clip_method, value="LB").pack(side=tk.LEFT, padx=5)
-
-        # Botões de Adição de Objetos (Ponto, Linha, Polígono)
         button_frame = ttk.Frame(obj_frame)
         button_frame.pack(side=tk.TOP, pady=10)
 
-        ttk.Button(button_frame, text="Ponto", 
-                command=self.add_point).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Linha", 
-                command=self.add_line).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Polígono", 
-                command=self.add_polygon).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="Adicionar Objetos", 
+                command=self.create_add_objects_menu).pack(side=tk.TOP, padx=2, pady=5, fill=tk.X)
+        ttk.Button(button_frame, text="Carregar OBJ", 
+                 command=self.load_obj).pack(side=tk.TOP, padx=2, pady=5, fill=tk.X)
+        ttk.Button(button_frame, text="Salvar OBJ", 
+                 command=self.save_obj).pack(side=tk.TOP, padx=2, pady=5, fill=tk.X)
 
         # Botões de limpar
         clear_buttons_frame = ttk.Frame(self.list_frame)
-        clear_buttons_frame.pack(side=tk.BOTTOM, pady=10)
+        clear_buttons_frame.pack(side=tk.BOTTOM, pady=10, fill=tk.X, expand=True)
 
         ttk.Button(clear_buttons_frame, text="Aplicar Transformações", 
                 command=self.create_transformations_menu).pack(side=tk.TOP, padx=2, pady=5)
@@ -735,15 +207,76 @@ class GraphicsSystem:
                 command=self.delete_selected, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
         ttk.Button(clear_buttons_frame, text="Limpar Tudo", 
                 command=self.clear_canvas, style="DeleteButton.TButton").pack(side=tk.TOP, padx=2, pady=5)
+    
+    def _create_rotation_controls(self):
+        rotation_frame = ttk.Frame(self.control_frame)
+        rotation_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
+        ttk.Label(rotation_frame, text="Rotação da Window", style="Title.TLabel").pack(side=tk.TOP, padx=2, pady=5)
+        ttk.Label(rotation_frame, text="Insira a rotação da windows (em graus):", style="CoordsLabel.TLabel").pack(pady=5)
+        
+        self.rotation_entry = ttk.Entry(rotation_frame, width=8)
+        self.rotation_entry.pack(side=tk.TOP, padx=2, pady=5)
+        ttk.Button(rotation_frame, text="Aplicar", 
+                 command=self.apply_window_rotation).pack(side=tk.TOP, padx=2, pady=5)
+
+    def create_add_objects_menu(self):
+        add_objects_window = tk.Toplevel(self.root)
+        add_objects_window.title("Adicione objetos")
+
+        # Frame principal para organizar abas e lista
+        main_frame = ttk.Frame(add_objects_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        for obj_type in ObjectType:
+            self.create_object_tab(obj_type, notebook)
+
+    def create_object_tab(self, type: ObjectType, notebook):
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text=type.value)
+
+        default_label_text = "Insira as coordenadas no formato \"(x1, y1), (x2, y2), ...\":"
+
+        label_texts = {
+            ObjectType.PONTO: "Insira as coordenadas no formato \"(x1, y1)\":",
+            ObjectType.LINHA: "Insira as coordenadas no formato \"(x1, y1), (x2, y2)\":"
+        }
+        ttk.Label(tab, text=label_texts.get(type, default_label_text), style="CoordsLabel.TLabel").pack(pady=5)
+        
+        if type == ObjectType.LINHA:
+            ttk.Label(tab, text="Técnica de Clipagem de Retas:", style="Title.TLabel").pack(pady=(10, 0))
+            clip_radio_frame = ttk.Frame(tab)
+            clip_radio_frame.pack(pady=5)
+
+            ttk.Radiobutton(clip_radio_frame, text="Cohen-Sutherland", variable=self.line_clip_method, value="CS").pack(side=tk.LEFT, padx=5)
+            ttk.Radiobutton(clip_radio_frame, text="Liang-Barsky", variable=self.line_clip_method, value="LB").pack(side=tk.LEFT, padx=5)
+        
+        elif type == ObjectType.POLIGONO:
+            self.fill_var = tk.BooleanVar()
+            fill_checkbox = ttk.Checkbutton(tab, text="Preencher Polígono", variable=self.fill_var)
+            fill_checkbox.pack(side=tk.TOP, pady=5)
+
+        coord_entry = ttk.Entry(tab, width=40)
+        coord_entry.pack(side=tk.TOP, padx=5, fill=tk.X, expand=False)
+
+        button_frame = ttk.Frame(tab)
+        button_frame.pack(side=tk.TOP, pady=10)
+
+        command_dict = {
+            ObjectType.LINHA: lambda: self.add_line(coord_entry),
+            ObjectType.POLIGONO: lambda: self.add_polygon(coord_entry),
+            ObjectType.PONTO: lambda: self.add_point(coord_entry),
+            ObjectType.CURVA_BEZIER: lambda: self.add_bezier_curve(coord_entry),
+            ObjectType.B_SPLINE: lambda: self.add_bspline(coord_entry)
+        }
+
         ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
-
-        ttk.Button(button_frame, text="Curva Bezier", 
-         command=self.add_bezier_curve).pack(side=tk.LEFT, padx=2)
-
-        ttk.Button(button_frame, text="B-Spline", 
-                command=self.add_bspline).pack(side=tk.LEFT, padx=2)
-
+        ttk.Button(button_frame, text="Adicionar objeto", 
+                command=command_dict.get(type)).pack(side=tk.LEFT, padx=2)
+    
     def choose_color(self):
         color = askcolor()[1]
         if color:
@@ -809,17 +342,6 @@ class GraphicsSystem:
         self.window["ymax"] += dy_rot
         self.redraw()
 
-    def add_bezier_curve(self):
-        coords = self.parse_input()
-        if len(coords) >= 4 and (len(coords) - 4) % 3 == 0:
-            curva = Curve2D(coords, color=self.selected_color)
-            self.display_file.append(curva)
-            self.coord_entry.delete(0, tk.END)
-            self._update_object_list()
-            self.redraw()
-        else:
-            messagebox.showerror("Erro de Entrada", "Uma curva Bézier requer pelo menos 4 pontos de controle, e cada segmento adicional requer 3 pontos.")
-
     def save_obj(self):
         filename = filedialog.asksaveasfilename(
             defaultextension=".obj",
@@ -851,7 +373,6 @@ class GraphicsSystem:
     def clear_canvas(self):
         self.display_file = []
         GraphicObject.reset_counter()
-        self.coord_entry.delete(0, tk.END)
         self._update_object_list()
         self.redraw()
 
@@ -1197,39 +718,56 @@ class GraphicsSystem:
         
         return (vx, vy)
 
-    def add_point(self):
-        coords = self.parse_input()
+    def add_point(self, coords_entry):
+        coords = self.parse_input(coords_entry)
         if len(coords) == 1:
             ponto = Point(coords, color=self.selected_color)
             self.display_file.append(ponto)
-            self.coord_entry.delete(0, tk.END)
             self._update_object_list()
             self.redraw()
         else:
             messagebox.showerror("Erro de Entrada", "Para adicionar um Ponto, insira apenas uma coordenada.")
 
-    def add_line(self):
-        coords = self.parse_input()
+    def add_line(self, coords_entry):
+        coords = self.parse_input(coords_entry)
         if len(coords) == 2:
             linha = Line(coords, color=self.selected_color)
             self.display_file.append(linha)
-            self.coord_entry.delete(0, tk.END)
             self._update_object_list()
             self.redraw()
         else:
             messagebox.showerror("Erro de Entrada", "Para adicionar uma Linha, insira exatamente duas coordenadas.")
 
-    def add_polygon(self):
-        coords = self.parse_input()
+    def add_polygon(self, coords_entry):
+        coords = self.parse_input(coords_entry)
         if len(coords) >= 3:
             poligono = Polygon(coords, color=self.selected_color, filled=self.fill_var.get())
             self.display_file.append(poligono)
-            self.coord_entry.delete(0, tk.END)
             self.fill_var.set(False)
             self._update_object_list()
             self.redraw()
         else:
             messagebox.showerror("Erro de Entrada", "Para adicionar um Polígono, insira pelo menos três coordenadas.")
+    
+    def add_bezier_curve(self, coords_entry):
+        coords = self.parse_input(coords_entry)
+        if len(coords) >= 4 and (len(coords) - 4) % 3 == 0:
+            curva = Curve2D(coords, color=self.selected_color)
+            self.display_file.append(curva)
+            self._update_object_list()
+            self.redraw()
+        else:
+            messagebox.showerror("Erro de Entrada", "Uma curva Bézier requer pelo menos 4 pontos de controle, e cada segmento adicional requer 3 pontos.")
+    
+    def add_bspline(self, coords_entry):
+        coords = self.parse_input(coords_entry)
+        try:
+            bspline = BSpline(coords, color=self.selected_color)
+            self.display_file.append(bspline)
+            self._update_object_list()
+            self.redraw()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao criar B-Spline:\n{str(e)}")
 
     def clip_object(self, obj):
         if isinstance(obj, Point):
@@ -1308,9 +846,9 @@ class GraphicsSystem:
                 clipped.draw(self.canvas, self.viewport_transform)
         self._draw_viewport()
 
-    def parse_input(self):
+    def parse_input(self, coords_entry):
         try:
-            input_str = self.coord_entry.get().strip()
+            input_str = coords_entry.get().strip()
             if input_str:
                 return list(eval(f"[{input_str.replace(' ', '').replace(')(', '),(')}]"))
             return []
@@ -1467,18 +1005,6 @@ class GraphicsSystem:
         x2 = x1 + u2 * dx
         y2 = y1 + u2 * dy
         return Line([(x1, y1), (x2, y2)])
-
-    
-    def add_bspline(self):
-        coords = self.parse_input()
-        try:
-            bspline = BSpline(coords, color=self.selected_color)
-            self.display_file.append(bspline)
-            self.coord_entry.delete(0, tk.END)
-            self._update_object_list()
-            self.redraw()
-        except Exception as e:
-            messagebox.showerror("Erro", f"Falha ao criar B-Spline:\n{str(e)}")
 
 if __name__ == "__main__":
     root = tk.Tk()
