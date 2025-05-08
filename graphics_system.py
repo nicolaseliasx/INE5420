@@ -432,20 +432,24 @@ class GraphicsSystem:
             item_values = self.object_tree.item(selected_item, "values")
             selected_name = item_values[1]
 
-            # Janela temporária para coletar transformações
-            self.temp_transformations = []  # Lista temporária para esta sessão
-            trans_window = tk.Toplevel(self.root)
-            trans_window.title("Transformações 2D")
+            # Verifica se o objeto é 2D ou 3D
+            obj = next((o for o in self.display_file if o.name == selected_name), None)
+            is_3d = isinstance(obj, (Ponto3D, Objeto3D))
 
-            # Frame principal para organizar abas e lista
+            # Janela temporária para coletar transformações
+            self.temp_transformations = []
+            trans_window = tk.Toplevel(self.root)
+            trans_window.title("Transformações 3D" if is_3d else "Transformações 2D")
+
+            # Frame principal
             main_frame = ttk.Frame(trans_window)
             main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-            # Notebook (Abas) à esquerda
+            # Notebook (Abas)
             self.notebook = ttk.Notebook(main_frame)
             self.notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-            # Frame da lista à direita
+            # Frame da lista
             list_frame = ttk.Frame(main_frame)
             list_frame.pack(side=tk.RIGHT, fill=tk.BOTH)
 
@@ -455,7 +459,7 @@ class GraphicsSystem:
             self.transform_list.heading("params", text="Parâmetros")
             self.transform_list.pack(fill=tk.BOTH, expand=True)
 
-            # Botões abaixo da lista
+            # Botões
             button_frame = ttk.Frame(list_frame)
             button_frame.pack(pady=5)
 
@@ -466,10 +470,15 @@ class GraphicsSystem:
             ttk.Button(button_frame, text="Aplicar Tudo", 
                     command=lambda: self.apply_all_transformations(selected_name, trans_window)).pack(side=tk.LEFT, padx=2)
 
-            # Criar abas de transformações
-            self.create_translation_tab()
-            self.create_scaling_tab()
-            self.create_rotation_tab()
+            # Criar abas
+            if is_3d:
+                self.create_3d_translation_tab()
+                self.create_3d_scaling_tab()
+                self.create_3d_rotation_tab()
+            else:
+                self.create_translation_tab()
+                self.create_scaling_tab()
+                self.create_rotation_tab()
 
     def add_transformation(self, selected_name, window):
         current_tab = self.notebook.tab(self.notebook.select(), "text")
@@ -505,9 +514,19 @@ class GraphicsSystem:
             params["dx"] = float(current_tab.children["x_entry"].get())
             params["dy"] = float(current_tab.children["y_entry"].get())
         
+        elif tab_name == "Translação 3D":
+            params["dx"] = float(current_tab.children["x_entry"].get())
+            params["dy"] = float(current_tab.children["y_entry"].get())
+            params["dz"] = float(current_tab.children["z_entry"].get())
+        
         elif tab_name == "Escalonamento":
             params["sx"] = float(current_tab.children["sx_entry"].get())
             params["sy"] = float(current_tab.children["sy_entry"].get())
+        
+        elif tab_name == "Escalonamento 3D":
+            params["sx"] = float(current_tab.children["sx_entry"].get())
+            params["sy"] = float(current_tab.children["sy_entry"].get())
+            params["sz"] = float(current_tab.children["sz_entry"].get())
         
         elif tab_name == "Rotações":
             params["degrees"] = float(current_tab.children["degrees_entry"].get())
@@ -516,6 +535,11 @@ class GraphicsSystem:
             if params["pivot_type"] == "Em torno de um ponto arbitrário":
                 params["x"] = float(current_tab.children["x_pivot_entry"].get())
                 params["y"] = float(current_tab.children["y_pivot_entry"].get())
+        
+        elif tab_name == "Rotação 3D":
+            params["degrees"] = float(current_tab.children["degrees_entry"].get())
+            params["axis"] = current_tab.children["axis_combobox"].get()
+            params["pivot_type"] = current_tab.children["pivot_combobox"].get()
         
         return params
 
@@ -581,12 +605,18 @@ class GraphicsSystem:
         self.transform_list.delete(*self.transform_list.get_children())
         for t in self.temp_transformations:
             desc = f"{t['type']}: "
-            if t["type"] == "Translação":
-                desc += f"dx={t['params']['dx']}, dy={t['params']['dy']}"
-            elif t["type"] == "Escalonamento":
-                desc += f"sx={t['params']['sx']}, sy={t['params']['sy']}"
+            if t["type"] in ["Translação", "Translação 3D"]:
+                desc += f"dx={t['params'].get('dx', 0)}, dy={t['params'].get('dy', 0)}"
+                if "dz" in t["params"]:
+                    desc += f", dz={t['params']['dz']}"
+            elif t["type"] in ["Escalonamento", "Escalonamento 3D"]:
+                desc += f"sx={t['params'].get('sx', 1)}, sy={t['params'].get('sy', 1)}"
+                if "sz" in t["params"]:
+                    desc += f", sz={t['params']['sz']}"
             elif t["type"] == "Rotações":
                 desc += f"graus={t['params']['degrees']}, pivô={t['params']['pivot_type']}"
+            elif t["type"] == "Rotação 3D":
+                desc += f"graus={t['params']['degrees']}, eixo={t['params']['axis']}, pivô={t['params']['pivot_type']}"
             self.transform_list.insert("", "end", values=(t["type"], desc))
 
     def remove_transformation(self):
@@ -687,7 +717,7 @@ class GraphicsSystem:
             
             return (vx, vy)
         else:  # Transformação 3D - Projeção Paralela Ortogonal
-            # Navegação 3D - VRP é o primeiro ponto (centro da window)
+            # Navegação 3D - VRP é o primeiro ponto
             vrp_x = (self.window["xmin"] + self.window["xmax"]) / 2
             vrp_y = (self.window["ymin"] + self.window["ymax"]) / 2
             vrp_z = 0  # Assumindo que o VRP está no plano XY
@@ -731,7 +761,6 @@ class GraphicsSystem:
             x_proj = transformed[0]
             y_proj = transformed[1]
             
-            # Agora mapeia para a viewport como no caso 2D
             window_width = self.window["xmax"] - self.window["xmin"]
             window_height = self.window["ymax"] - self.window["ymin"]
             viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
@@ -745,6 +774,224 @@ class GraphicsSystem:
             vy = self.viewport["ymax"] - (y_proj - self.window["ymin"]) * scale
             
             return (vx, vy)
+    
+    def generate_matrix_3d(self, trans_type, params, selected_name):
+        if trans_type == "Translação 3D":
+            dx = params["dx"]
+            dy = params["dy"]
+            dz = params["dz"]
+            return np.array([
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [dx, dy, dz, 1]
+            ])
+        
+        elif trans_type == "Escalonamento 3D":
+            sx = params["sx"]
+            sy = params["sy"]
+            sz = params["sz"]
+            
+            # Encontra o centro do objeto
+            obj = next((o for o in self.display_file if o.name == selected_name), None)
+            if not obj:
+                return np.identity(4)
+                
+            if isinstance(obj, Ponto3D):
+                cx, cy, cz = obj.coordinates[0]
+            elif isinstance(obj, Objeto3D):
+                # Calcula o centro médio de todos os pontos
+                all_points = []
+                for segment in obj.segments:
+                    all_points.extend(segment)
+                cx = sum(p[0] for p in all_points) / len(all_points)
+                cy = sum(p[1] for p in all_points) / len(all_points)
+                cz = sum(p[2] for p in all_points) / len(all_points)
+            
+            return np.array([
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [-cx, -cy, -cz, 1]
+            ]) @ np.array([
+                [sx, 0, 0, 0],
+                [0, sy, 0, 0],
+                [0, 0, sz, 0],
+                [0, 0, 0, 1]
+            ]) @ np.array([
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [cx, cy, cz, 1]
+            ])
+        
+        elif trans_type == "Rotação 3D":
+            angle = math.radians(params["degrees"])
+            axis = params["axis"]
+            pivot_type = params["pivot_type"]
+            
+            # Determina o ponto de pivô
+            if pivot_type == "Em torno da origem":
+                cx, cy, cz = 0, 0, 0
+            else:
+                obj = next((o for o in self.display_file if o.name == selected_name), None)
+                if not obj:
+                    return np.identity(4)
+                    
+                if isinstance(obj, Ponto3D):
+                    cx, cy, cz = obj.coordinates[0]
+                elif isinstance(obj, Objeto3D):
+                    all_points = []
+                    for segment in obj.segments:
+                        all_points.extend(segment)
+                    cx = sum(p[0] for p in all_points) / len(all_points)
+                    cy = sum(p[1] for p in all_points) / len(all_points)
+                    cz = sum(p[2] for p in all_points) / len(all_points)
+            
+            # Matriz de translação para a origem
+            T1 = np.array([
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [-cx, -cy, -cz, 1]
+            ])
+            
+            # Matriz de rotação
+            c = math.cos(angle)
+            s = math.sin(angle)
+            
+            if axis == "X":
+                R = np.array([
+                    [1, 0, 0, 0],
+                    [0, c, s, 0],
+                    [0, -s, c, 0],
+                    [0, 0, 0, 1]
+                ])
+            elif axis == "Y":
+                R = np.array([
+                    [c, 0, -s, 0],
+                    [0, 1, 0, 0],
+                    [s, 0, c, 0],
+                    [0, 0, 0, 1]
+                ])
+            elif axis == "Z":
+                R = np.array([
+                    [c, s, 0, 0],
+                    [-s, c, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 0, 0, 1]
+                ])
+            
+            # Matriz de translação de volta
+            T2 = np.array([
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [cx, cy, cz, 1]
+            ])
+            
+            return T1 @ R @ T2
+        
+        return np.identity(4)
+
+    def create_3d_translation_tab(self):
+        translation_tab = ttk.Frame(self.notebook)
+        self.notebook.add(translation_tab, text="Translação 3D")
+        
+        ttk.Label(translation_tab, text="Deslocamento em X:").pack(pady=5)
+        x_entry = ttk.Entry(translation_tab, name="x_entry")
+        x_entry.pack(pady=5)
+        
+        ttk.Label(translation_tab, text="Deslocamento em Y:").pack(pady=5)
+        y_entry = ttk.Entry(translation_tab, name="y_entry")
+        y_entry.pack(pady=5)
+        
+        ttk.Label(translation_tab, text="Deslocamento em Z:").pack(pady=5)
+        z_entry = ttk.Entry(translation_tab, name="z_entry")
+        z_entry.pack(pady=5)
+
+    def create_3d_scaling_tab(self):
+        scaling_tab = ttk.Frame(self.notebook)
+        self.notebook.add(scaling_tab, text="Escalonamento 3D")
+
+        ttk.Label(scaling_tab, text="Fator de Escalonamento em X:").pack(pady=5)
+        sx_entry = ttk.Entry(scaling_tab, name="sx_entry")
+        sx_entry.pack(pady=5)
+
+        ttk.Label(scaling_tab, text="Fator de Escalonamento em Y:").pack(pady=5)
+        sy_entry = ttk.Entry(scaling_tab, name="sy_entry")
+        sy_entry.pack(pady=5)
+
+        ttk.Label(scaling_tab, text="Fator de Escalonamento em Z:").pack(pady=5)
+        sz_entry = ttk.Entry(scaling_tab, name="sz_entry")
+        sz_entry.pack(pady=5)
+
+    def create_3d_rotation_tab(self):
+        rotation_tab = ttk.Frame(self.notebook)
+        self.notebook.add(rotation_tab, text="Rotação 3D")
+
+        ttk.Label(rotation_tab, text="Graus:").pack(pady=5)
+        degrees_entry = ttk.Entry(rotation_tab, name="degrees_entry")
+        degrees_entry.pack(pady=5)
+
+        ttk.Label(rotation_tab, text="Eixo de rotação:").pack(pady=5)
+        axis_combobox = ttk.Combobox(rotation_tab, values=["X", "Y", "Z"], name="axis_combobox")
+        axis_combobox.set("Z")
+        axis_combobox.pack(pady=5)
+
+        ttk.Label(rotation_tab, text="Ponto de rotação:").pack(pady=5)
+        pivot_combobox = ttk.Combobox(rotation_tab, 
+                                    values=["Em torno da origem", "Em torno do centro do objeto"], 
+                                    name="pivot_combobox")
+        pivot_combobox.set("Em torno do centro do objeto")
+        pivot_combobox.pack(pady=5)
+
+    def apply_all_transformations(self, selected_name, window):
+        # Encontra o objeto
+        obj = next((o for o in self.display_file if o.name == selected_name), None)
+        if not obj:
+            messagebox.showerror("Erro", "Objeto não encontrado!")
+            window.destroy()
+            return
+        
+        # Combina todas as transformações
+        combined_matrix = np.identity(4 if isinstance(obj, (Ponto3D, Objeto3D)) else 3)
+        
+        for t in self.temp_transformations:
+            if isinstance(obj, (Ponto3D, Objeto3D)):
+                matrix = self.generate_matrix_3d(t["type"], t["params"], selected_name)
+            else:
+                matrix = self.generate_matrix(t["type"], t["params"], selected_name)
+            combined_matrix = combined_matrix @ matrix
+        
+        if isinstance(obj, Ponto3D):
+            x, y, z = obj.coordinates[0]
+            point = np.array([x, y, z, 1])
+            transformed_point = point @ combined_matrix
+            obj.coordinates = [(transformed_point[0], transformed_point[1], transformed_point[2])]
+        
+        elif isinstance(obj, Objeto3D):
+            new_segments = []
+            for segment in obj.segments:
+                new_segment = []
+                for point in segment:
+                    x, y, z = point
+                    transformed_point = np.array([x, y, z, 1]) @ combined_matrix
+                    new_segment.append((transformed_point[0], transformed_point[1], transformed_point[2]))
+                new_segments.append(tuple(new_segment))
+            obj.segments = new_segments
+        
+        else:
+            # Transformação para objetos 2D
+            new_coords = []
+            for x, y in obj.coordinates:
+                point = np.array([x, y, 1])
+                transformed_point = point @ combined_matrix
+                new_coords.append((transformed_point[0], transformed_point[1]))
+            obj.coordinates = new_coords
+        
+        self.redraw()
+        window.destroy()
 
     def add_point(self, coords_entry):
         coords = self.parse_input(coords_entry)
