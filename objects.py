@@ -2,7 +2,7 @@ import tkinter as tk
 from abc import ABC, abstractmethod
 import numpy as np
 from enum import Enum
-
+import math
 
 class ObjectType(Enum):
     PONTO = "Ponto"
@@ -10,6 +10,8 @@ class ObjectType(Enum):
     POLIGONO = "Polígono"
     CURVA_BEZIER = "Curva Bezier"
     B_SPLINE = "B-Spline"
+    PONTO3D = "Ponto3D"
+    OBJETO3D = "Objeto3D"
 
 class GraphicObject(ABC):
     _counter = 0  # Contador estático compartilhado
@@ -52,6 +54,40 @@ class GraphicObject(ABC):
             vx0, vy0 = transform(x0, y0)
             coords.extend([vx0, vy0])
         return coords
+    
+    def get_coordinates_3d(self, transform):
+        coords = []
+        for x, y, z in self.coordinates:
+            vx, vy = transform(x, y, z)
+            coords.extend([vx, vy])
+        if len(self.coordinates) >= 3:
+            x0, y0, z0 = self.coordinates[0]
+            vx0, vy0 = transform(x0, y0, z0)
+            coords.extend([vx0, vy0])
+        return coords
+    
+    # def get_coordinates(self, transform):
+    #     coords = []
+    #     for point in self.coordinates:
+    #         if len(point) == 2:  # 2D
+    #             x, y = point
+    #             vx, vy = transform(x, y)
+    #             coords.extend([vx, vy])
+    #         elif len(point) == 3:  # 3D
+    #             x, y, z = point
+    #             vx, vy = transform(x, y, z)
+    #             coords.extend([vx, vy])
+        
+    #     if len(self.coordinates) >= 3:
+    #         first_point = self.coordinates[0]
+    #         if len(first_point) == 2:
+    #             x0, y0 = first_point
+    #             vx0, vy0 = transform(x0, y0)
+    #         else:
+    #             x0, y0, z0 = first_point
+    #             vx0, vy0 = transform(x0, y0, z0)
+    #         coords.extend([vx0, vy0])
+    #     return coords
 
     @classmethod
     def reset_counter(cls):
@@ -360,3 +396,53 @@ class BSpline(GraphicObject):
             min(y_coords) > clip_window["ymax"]
         )
         self.window = clip_window
+
+####################### Objetos 3D #######################
+
+class Ponto3D(GraphicObject):
+    prefix = "P3D"
+    
+    def __init__(self, coordinates, color="#00aaff"):
+        if len(coordinates) != 3:
+            raise ValueError("Ponto3D requer coordenadas (x, y, z)")
+        super().__init__([coordinates], color)
+    
+    @property
+    def type(self):
+        return "Ponto3D"
+    
+    def draw(self, canvas, transform):
+        vx, vy = self.get_coordinates_3d(transform)
+        canvas.create_oval(vx-6, vy-6, vx+6, vy+6, 
+                         fill=self.color, outline="#005533", width=2)
+
+class Objeto3D(GraphicObject):
+    prefix = "O3D"
+    
+    def __init__(self, segments, color="#00aaff"):
+        self.segments = segments  # Lista de segmentos [(p1, p2), ...] onde p1 e p2 são tuplas (x,y,z)
+        # Extrai todas as coordenadas únicas para a lista de coordenadas
+        all_points = []
+        for p1, p2 in segments:
+            all_points.extend([p1, p2])
+        # Remove duplicatas mantendo a ordem
+        unique_points = []
+        seen = set()
+        for point in all_points:
+            if point not in seen:
+                seen.add(point)
+                unique_points.append(point)
+        super().__init__(unique_points, color)
+    
+    @property
+    def type(self):
+        return "Objeto3D"
+    
+    def draw(self, canvas, transform):
+        for p1, p2 in self.segments:
+            x1, y1, z1 = p1
+            x2, y2, z2 = p2
+            vx1, vy1 = transform(x1, y1, z1)
+            vx2, vy2 = transform(x2, y2, z2)
+            canvas.create_line(vx1, vy1, vx2, vy2, 
+                             fill=self.color, width=2, capstyle=tk.ROUND)

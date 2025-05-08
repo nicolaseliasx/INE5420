@@ -4,7 +4,7 @@ from tkinter import filedialog
 import numpy as np
 import math
 from tkinter.colorchooser import askcolor
-from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, ObjectType
+from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType
 from descritor_obj import DescritorOBJ
 
 
@@ -231,8 +231,14 @@ class GraphicsSystem:
         notebook = ttk.Notebook(main_frame)
         notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        for obj_type in ObjectType:
+        # Abas para objetos 2D
+        for obj_type in [ObjectType.PONTO, ObjectType.LINHA, ObjectType.POLIGONO, 
+                        ObjectType.CURVA_BEZIER, ObjectType.B_SPLINE]:
             self.create_object_tab(obj_type, notebook)
+
+        # Abas para objetos 3D
+        self.create_3d_objects_tab(ObjectType.PONTO3D, notebook)
+        self.create_3d_objects_tab(ObjectType.OBJETO3D, notebook)
 
     def create_object_tab(self, type: ObjectType, notebook):
         tab = ttk.Frame(notebook)
@@ -276,6 +282,34 @@ class GraphicsSystem:
         ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
         ttk.Button(button_frame, text="Adicionar objeto", 
                 command=command_dict.get(type)).pack(side=tk.LEFT, padx=2)
+    
+    def create_3d_objects_tab(self, type: ObjectType, notebook):
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text=type.value)
+
+        if type == ObjectType.PONTO3D:
+            ttk.Label(tab, text="Insira as coordenadas no formato \"(x, y, z)\":", style="CoordsLabel.TLabel").pack(pady=5)
+            coord_entry = ttk.Entry(tab, width=40)
+            coord_entry.pack(side=tk.TOP, padx=5, fill=tk.X, expand=False)
+
+            button_frame = ttk.Frame(tab)
+            button_frame.pack(side=tk.TOP, pady=10)
+
+            ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
+            ttk.Button(button_frame, text="Adicionar Ponto3D", 
+                    command=lambda: self.add_ponto3d(coord_entry)).pack(side=tk.LEFT, padx=2)
+        
+        elif type == ObjectType.OBJETO3D:
+            ttk.Label(tab, text="Insira os segmentos no formato \"[((x1,y1,z1), (x2,y2,z2)), ...]\":", style="CoordsLabel.TLabel").pack(pady=5)
+            segments_entry = ttk.Entry(tab, width=40)
+            segments_entry.pack(side=tk.TOP, padx=5, fill=tk.X, expand=False)
+
+            button_frame = ttk.Frame(tab)
+            button_frame.pack(side=tk.TOP, pady=10)
+
+            ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=2)
+            ttk.Button(button_frame, text="Adicionar Objeto3D", 
+                    command=lambda: self.add_objeto3d(segments_entry)).pack(side=tk.LEFT, padx=2)
     
     def choose_color(self):
         color = askcolor()[1]
@@ -693,30 +727,90 @@ class GraphicsSystem:
         cy = sum(total_y) / array_length
         return cx, cy
 
-    def viewport_transform(self, x, y):
-        # Calcular centro da window
-        cx = (self.window["xmin"] + self.window["xmax"]) / 2
-        cy = (self.window["ymin"] + self.window["ymax"]) / 2
-        
-        # Aplicar rotação inversa
-        theta = -self.window["rotation"]
-        x_rot = (x - cx) * math.cos(theta) - (y - cy) * math.sin(theta) + cx
-        y_rot = (x - cx) * math.sin(theta) + (y - cy) * math.cos(theta) + cy
-        
-        # Mapear para viewport
-        window_width = self.window["xmax"] - self.window["xmin"]
-        window_height = self.window["ymax"] - self.window["ymin"]
-        viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
-        viewport_height = self.viewport["ymax"] - self.viewport["ymin"]
-        
-        scale_x = viewport_width / window_width
-        scale_y = viewport_height / window_height
-        scale = min(scale_x, scale_y)
-        
-        vx = self.viewport["xmin"] + (x_rot - self.window["xmin"]) * scale
-        vy = self.viewport["ymax"] - (y_rot - self.window["ymin"]) * scale
-        
-        return (vx, vy)
+    def viewport_transform(self, x, y, z=None):
+        if z is None:  # Transformação 2D
+            # Calcular centro da window
+            cx = (self.window["xmin"] + self.window["xmax"]) / 2
+            cy = (self.window["ymin"] + self.window["ymax"]) / 2
+            
+            # Aplicar rotação inversa
+            theta = -self.window["rotation"]
+            x_rot = (x - cx) * math.cos(theta) - (y - cy) * math.sin(theta) + cx
+            y_rot = (x - cx) * math.sin(theta) + (y - cy) * math.cos(theta) + cy
+            
+            # Mapear para viewport
+            window_width = self.window["xmax"] - self.window["xmin"]
+            window_height = self.window["ymax"] - self.window["ymin"]
+            viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
+            viewport_height = self.viewport["ymax"] - self.viewport["ymin"]
+            
+            scale_x = viewport_width / window_width
+            scale_y = viewport_height / window_height
+            scale = min(scale_x, scale_y)
+            
+            vx = self.viewport["xmin"] + (x_rot - self.window["xmin"]) * scale
+            vy = self.viewport["ymax"] - (y_rot - self.window["ymin"]) * scale
+            
+            return (vx, vy)
+        else:  # Transformação 3D - Projeção Paralela Ortogonal
+            # Navegação 3D - VRP é o primeiro ponto (centro da window)
+            vrp_x = (self.window["xmin"] + self.window["xmax"]) / 2
+            vrp_y = (self.window["ymin"] + self.window["ymax"]) / 2
+            vrp_z = 0  # Assumindo que o VRP está no plano XY
+            
+            # VPN (View Plane Normal) - inicialmente (0, 0, 1)
+            vpn = np.array([0, 0, 1])
+            
+            # Vetor de view up (VUP) - inicialmente (0, 1, 0)
+            vup = np.array([0, 1, 0])
+            
+            # Calcula os eixos do sistema de coordenadas da view
+            n = vpn / np.linalg.norm(vpn)
+            u = np.cross(vup, n)
+            u = u / np.linalg.norm(u)
+            v = np.cross(n, u)
+            
+            # Matriz de rotação para alinhar com o sistema de coordenadas da view
+            R = np.array([
+                [u[0], u[1], u[2], 0],
+                [v[0], v[1], v[2], 0],
+                [n[0], n[1], n[2], 0],
+                [0,    0,    0,    1]
+            ])
+            
+            # Matriz de translação para mover o VRP para a origem
+            T = np.array([
+                [1, 0, 0, -vrp_x],
+                [0, 1, 0, -vrp_y],
+                [0, 0, 1, -vrp_z],
+                [0, 0, 0, 1]
+            ])
+            
+            # Transformação completa (primeiro translação, depois rotação)
+            M = R @ T
+            
+            # Aplica a transformação ao ponto
+            point = np.array([x, y, z, 1])
+            transformed = M @ point
+            
+            # Projeção Paralela Ortogonal - simplesmente descarta a coordenada Z
+            x_proj = transformed[0]
+            y_proj = transformed[1]
+            
+            # Agora mapeia para a viewport como no caso 2D
+            window_width = self.window["xmax"] - self.window["xmin"]
+            window_height = self.window["ymax"] - self.window["ymin"]
+            viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
+            viewport_height = self.viewport["ymax"] - self.viewport["ymin"]
+            
+            scale_x = viewport_width / window_width
+            scale_y = viewport_height / window_height
+            scale = min(scale_x, scale_y)
+            
+            vx = self.viewport["xmin"] + (x_proj - self.window["xmin"]) * scale
+            vy = self.viewport["ymax"] - (y_proj - self.window["ymin"]) * scale
+            
+            return (vx, vy)
 
     def add_point(self, coords_entry):
         coords = self.parse_input(coords_entry)
@@ -768,6 +862,32 @@ class GraphicsSystem:
             self.redraw()
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao criar B-Spline:\n{str(e)}")
+    
+    def add_ponto3d(self, coords_entry):
+        coords = eval(coords_entry.get().strip())
+        try:
+            if len(coords) == 3:
+                ponto3d = Ponto3D(coords, color=self.selected_color)
+                self.display_file.append(ponto3d)
+                self._update_object_list()
+                self.redraw()
+            else:
+                messagebox.showerror("Erro", "Ponto3D requer exatamente 3 coordenadas (x, y, z)")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Coordenadas inválidas: {str(e)}")
+    
+    def add_objeto3d(self, segments_entry):
+        try:
+            segments = eval(segments_entry.get().strip())
+            if len(segments) > 0 and all(len(seg) == 2 for seg in segments):
+                objeto = Objeto3D(segments, color=self.selected_color)
+                self.display_file.append(objeto)
+                self._update_object_list()
+                self.redraw()
+            else:
+                messagebox.showerror("Erro", "Objeto3D requer uma lista de segmentos [(p1, p2), ...]")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Segmentos inválidos: {str(e)}")
 
     def clip_object(self, obj):
         if isinstance(obj, Point):
@@ -780,6 +900,10 @@ class GraphicsSystem:
             return self.clip_curve(obj)
         elif isinstance(obj, BSpline):
             return self.clip_bspline(obj)
+        elif isinstance(obj, Ponto3D):
+            return obj if self.clip_point_3d(obj) else None
+        elif isinstance(obj, Objeto3D):
+            return obj
         return None
 
     def clip_bspline(self, bspline):
@@ -858,6 +982,11 @@ class GraphicsSystem:
     
     def clip_point(self, point):
         x, y = point.coordinates[0]
+        return (self.window["xmin"] <= x <= self.window["xmax"] and
+                self.window["ymin"] <= y <= self.window["ymax"])
+    
+    def clip_point_3d(self, point):
+        x, y, z = point.coordinates[0]
         return (self.window["xmin"] <= x <= self.window["xmax"] and
                 self.window["ymin"] <= y <= self.window["ymax"])
 
