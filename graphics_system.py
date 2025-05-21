@@ -102,6 +102,11 @@ class GraphicsSystem:
         self.style.configure("CoordsLabel.TLabel", 
                              background="#2d2d2d", 
                              foreground="white")
+        self.style.configure("ProjButton.TRadiobutton", 
+                             background="#2d2d2d", 
+                             foreground="white",
+                             indicatorcolor="#1a1a1a",
+                             font=("bold"))
 
     def _create_canvas(self):
         self.canvas_frame = ttk.Frame(self.content_frame)
@@ -137,6 +142,8 @@ class GraphicsSystem:
         
         self._create_view_controls()
         self._create_separator()
+        self._create_projection_controls()
+        self._create_separator()
         self._create_move_controls()
         self._create_separator()
         self._create_rotation_controls()
@@ -156,6 +163,42 @@ class GraphicsSystem:
                 command=lambda: self.zoom_manual(1.1)).grid(row=2, column=0, pady=2)
         ttk.Button(view_frame, text="Resetar", 
                 command=self.reset_view).grid(row=3, column=0, pady=2)
+    
+    def _create_projection_controls(self):
+        projection_frame = ttk.Frame(self.control_frame)
+        projection_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        projection_label = ttk.Label(projection_frame, text="Tipo de projeção", style="Title.TLabel")
+        projection_label.grid(row=0, column=0, pady=5, columnspan=2)
+
+        self.projection_type = tk.StringVar(value="parallel")
+
+        radio_frame = ttk.Frame(projection_frame)
+        radio_frame.grid(row=1, column=0, columnspan=2, pady=2)
+        ttk.Radiobutton(projection_frame, text="Paralela", variable=self.projection_type, style="ProjButton.TRadiobutton",
+                    value="parallel", command=self.toggle_projection_params).grid(row=1, column=0, pady=2)
+        ttk.Radiobutton(projection_frame, text="Perspectiva", variable=self.projection_type, style="ProjButton.TRadiobutton",
+                    value="perspective", command=self.toggle_projection_params).grid(row=2, column=0, pady=2)
+        
+        # Frame para os parâmetros de perspectiva (inicialmente oculto)
+        self.perspective_frame = ttk.Frame(projection_frame)
+        
+        # Parâmetros da projeção perspectiva
+        ttk.Label(self.perspective_frame, text="Distância (d):", style="CoordsLabel.TLabel").grid(row=3, column=0, pady=2)
+        self.d_entry = ttk.Entry(self.perspective_frame)
+        self.d_entry.insert(0, "200")
+        self.d_entry.grid(row=4, column=0, pady=2)
+        ttk.Button(self.perspective_frame, text="Aplicar", 
+                command=self.redraw).grid(row=5, column=0, pady=2)
+        
+        self.toggle_projection_params()
+
+    def toggle_projection_params(self):
+        if self.projection_type.get() == "perspective":
+            self.perspective_frame.grid(row=3, column=0, pady=5)
+        else:
+            self.perspective_frame.grid_forget()
+        self.redraw()
 
     def _create_move_controls(self):
         move_frame = ttk.Frame(self.control_frame)
@@ -716,16 +759,22 @@ class GraphicsSystem:
             vy = self.viewport["ymax"] - (y_rot - self.window["ymin"]) * scale
             
             return (vx, vy)
-        else:  # Transformação 3D - Projeção Paralela Ortogonal
-            # Navegação 3D - VRP é o primeiro ponto
-            vrp_x = (self.window["xmin"] + self.window["xmax"]) / 2
-            vrp_y = (self.window["ymin"] + self.window["ymax"]) / 2
-            vrp_z = 0  # Assumindo que o VRP está no plano XY
+        else:  # Transformação 3D
+            try:
+                d = float(self.d_entry.get())
+            except ValueError:
+                d = 200
+
+            vrp = np.array([
+                (self.window["xmin"] + self.window["xmax"]) / 2,  # Centro X
+                (self.window["ymin"] + self.window["ymax"]) / 2,  # Centro Y
+                0  # Assumindo VRP no plano XY
+            ])
             
-            # VPN (View Plane Normal) - inicialmente (0, 0, 1)
+            # VPN (View Plane Normal) - apontando para o observador
             vpn = np.array([0, 0, 1])
             
-            # Vetor de view up (VUP) - inicialmente (0, 1, 0)
+            # Vetor View Up (VUP) - orientação "para cima"
             vup = np.array([0, 1, 0])
             
             # Calcula os eixos do sistema de coordenadas da view
@@ -744,9 +793,9 @@ class GraphicsSystem:
             
             # Matriz de translação para mover o VRP para a origem
             T = np.array([
-                [1, 0, 0, -vrp_x],
-                [0, 1, 0, -vrp_y],
-                [0, 0, 1, -vrp_z],
+                [1, 0, 0, -vrp[0]],
+                [0, 1, 0, -vrp[1]],
+                [0, 0, 1, -vrp[2]],
                 [0, 0, 0, 1]
             ])
             
@@ -757,10 +806,19 @@ class GraphicsSystem:
             point = np.array([x, y, z, 1])
             transformed = M @ point
             
-            # Projeção Paralela Ortogonal - simplesmente descarta a coordenada Z
-            x_proj = transformed[0]
-            y_proj = transformed[1]
+            if self.projection_type.get() == "parallel":
+                # Projeção Paralela Ortogonal - simplesmente descarta a coordenada Z
+                x_proj = transformed[0]
+                y_proj = transformed[1]
+            else:
+                # Projeção Perspectiva
+                if transformed[2] + d == 0:
+                    transformed[2] = -d + 0.0001
+                    
+                x_proj = (transformed[0] * d) / (transformed[2] + d)
+                y_proj = (transformed[1] * d) / (transformed[2] + d)
             
+            # Mapeia para a viewport
             window_width = self.window["xmax"] - self.window["xmin"]
             window_height = self.window["ymax"] - self.window["ymin"]
             viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
