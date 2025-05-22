@@ -6,14 +6,14 @@ class DescritorOBJ:
     def read_obj(filename):
         """
         Lê arquivo .obj com suporte a vértices 2D/3D, elementos gráficos e retalhos Bézier.
-        Formato do retalho: bp (x1,y1,z1),(x2,y2,z2),...; (4 linhas de 4 pontos)
         """
         display_file = []
         vertices = []
         color_map = {}
         fill_map = {}
         elements = []
-        current_name = None
+        bezier_patches = []  
+        bezier_counter = 0  # NOVO: Contador para retalhos Bézier
 
         with open(filename, 'r') as f:
             for line in f:
@@ -25,16 +25,16 @@ class DescritorOBJ:
                 if not parts:
                     continue
 
-                # Processamento de vértices (agora suporta 3D)
+                # Processamento de vértices 
                 if parts[0] == 'v':
-                    if len(parts[1:]) == 2:  # 2D
+                    if len(parts[1:]) == 2: 
                         x, y = map(float, parts[1:3])
                         vertices.append((x, y, 0.0))
-                    elif len(parts[1:]) == 3:  # 3D
+                    elif len(parts[1:]) == 3: 
                         x, y, z = map(float, parts[1:4])
                         vertices.append((x, y, z))
 
-                # Processamento de retalhos Bézier (novo)
+                # Processamento de retalhos Bézier (ALTERADO: nomeação)
                 elif parts[0] == 'bp':
                     try:
                         points_str = line[3:].replace(' ', '').split(';')
@@ -43,7 +43,11 @@ class DescritorOBJ:
                             row_points = eval(f'[{row}]')
                             control_points.extend([(p[0], p[1], p[2]) for p in row_points])
                         if len(control_points) == 16:
-                            display_file.append(BezierPatch(control_points))
+                            bezier_counter += 1  # Incrementa contador
+                            name = f"BP{bezier_counter}"  # Gera nome único
+                            patch = BezierPatch(control_points)
+                            patch._name = name  # Atribui nome ao retalho
+                            bezier_patches.append(patch)
                     except Exception as e:
                         print(f"Erro ao ler retalho Bézier: {str(e)}")
 
@@ -51,7 +55,7 @@ class DescritorOBJ:
                 elif parts[0] == 'c' and len(parts) >= 3:
                     color_map[parts[1]] = parts[2]
                 
-                # Processamento do preenchimento do polígono
+                # Processamento do preenchimento 
                 elif parts[0] == 'fill' and len(parts) >= 3:
                     nome = parts[1]
                     valor = parts[2].lower() == 'true'
@@ -63,7 +67,7 @@ class DescritorOBJ:
                     indices = [int(part.split('/')[0]) for part in parts[1:]]
                     elements.append((element_type, indices))
 
-        # Criar objetos gráficos 2D
+        # Criação de objetos gráficos 2D (existente)
         max_counter = 0
         for i, (elem_type, indices) in enumerate(elements):
             coords = [vertices[idx-1] for idx in indices]
@@ -79,7 +83,6 @@ class DescritorOBJ:
             name = f"{obj_prefix}{obj_number}"
             color = color_map.get(name, "#00aaff")
 
-            # Criação de objetos 2D (código existente)
             if elem_type == 'p' and len(coords) == 1:
                 obj = Point([(p[0], p[1]) for p in coords], color)
             elif elem_type == 'l' and len(coords) == 2:
@@ -97,6 +100,15 @@ class DescritorOBJ:
             obj._name = name
             max_counter = max(max_counter, obj_number)
             display_file.append(obj)
+
+        # ADICIONADO: Adiciona retalhos à display_file
+        for patch in bezier_patches:
+            display_file.append(patch)
+
+        # Aplica cores a todos os objetos (incluindo retalhos)
+        for obj in display_file:
+            if obj.name in color_map:
+                obj.color = color_map[obj.name]
 
         GraphicObject._counter = max_counter
         return display_file

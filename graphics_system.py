@@ -233,11 +233,21 @@ class GraphicsSystem:
         # Nova aba para superfícies Bézier
         bezier_tab = ttk.Frame(notebook)
         notebook.add(bezier_tab, text="Retalho Bézier")
-        
-        ttk.Label(bezier_tab, text="16 pontos 3D (4 linhas com 4 pontos separados por ';')").pack(pady=5)
-        self.bezier_entry = ttk.Entry(bezier_tab, width=60)
+
+        # Frame para os elementos de entrada
+        input_frame = ttk.Frame(bezier_tab)
+        input_frame.pack(pady=10, fill=tk.X)
+
+        ttk.Label(input_frame, text="16 pontos 3D (4 linhas com 4 pontos separados por ';')", style="CoordsLabel.TLabel").pack(pady=5)
+        self.bezier_entry = ttk.Entry(input_frame, width=60)
         self.bezier_entry.pack(pady=5)
-        ttk.Button(bezier_tab, text="Adicionar Retalho", command=self.add_bezier_patch).pack(pady=10)
+
+        # Frame para botões (cor e adicionar)
+        button_frame = ttk.Frame(bezier_tab)
+        button_frame.pack(pady=10)
+
+        ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Adicionar Retalho", command=self.add_bezier_patch).pack(side=tk.LEFT, padx=5)
 
         # Abas para objetos 3D
         self.create_3d_objects_tab(ObjectType.PONTO3D, notebook)
@@ -1132,8 +1142,35 @@ class GraphicsSystem:
         elif isinstance(obj, Objeto3D):
             return obj
         elif isinstance(obj, BezierPatch):
-            return obj  # Permitir que o BezierPatch seja desenhado após o clipping interno
+            return self.clip_bezier_patch(obj)
         return None
+    
+    def clip_bezier_patch(self, bezier_patch):
+        clipped_lines = []
+        resolution = bezier_patch.resolution
+        line_color = bezier_patch.color
+
+        # Gera linhas na direção U
+        for i in range(resolution):
+            for j in range(resolution - 1):
+                p1 = bezier_patch.surface_points[i * resolution + j]
+                p2 = bezier_patch.surface_points[i * resolution + j + 1]
+                line = Line([(p1[0], p1[1]), (p2[0], p2[1])], color=line_color)
+                clipped_line = self.clip_line(line)
+                if clipped_line:
+                    clipped_lines.append(clipped_line)
+
+        # Gera linhas na direção V
+        for j in range(resolution):
+            for i in range(resolution - 1):
+                p1 = bezier_patch.surface_points[i * resolution + j]
+                p2 = bezier_patch.surface_points[(i + 1) * resolution + j]
+                line = Line([(p1[0], p1[1]), (p2[0], p2[1])], color=line_color)
+                clipped_line = self.clip_line(line)
+                if clipped_line:
+                    clipped_lines.append(clipped_line)
+
+        return clipped_lines
 
     def clip_bspline(self, bspline):
         bspline.clip({
@@ -1196,7 +1233,11 @@ class GraphicsSystem:
         for obj in self.display_file:
             clipped = self.clip_object(obj)
             if clipped:
-                clipped.draw(self.canvas, self.viewport_transform)
+                if isinstance(clipped, list):  # Retalho Bézier retorna lista de linhas
+                    for line in clipped:
+                        line.draw(self.canvas, self.viewport_transform)
+                else:
+                    clipped.draw(self.canvas, self.viewport_transform)
         self._draw_viewport()
 
     def parse_input(self, coords_entry):
@@ -1288,81 +1329,122 @@ class GraphicsSystem:
             code |= self.LEFT
         elif x > self.window["xmax"]:
             code |= self.RIGHT
-
         if y < self.window["ymin"]:
             code |= self.BOTTOM
         elif y > self.window["ymax"]:
             code |= self.TOP
         return code
 
+    def world_to_window_local(self, x, y):
+        """Converte coordenadas mundiais para o sistema local da window (considera rotação)"""
+        cx = (self.window["xmin"] + self.window["xmax"]) / 2
+        cy = (self.window["ymin"] + self.window["ymax"]) / 2
+        theta = -self.window["rotation"]
+        
+        # Translada e rotaciona
+        x_rot = (x - cx) * math.cos(theta) - (y - cy) * math.sin(theta) + cx
+        y_rot = (x - cx) * math.sin(theta) + (y - cy) * math.cos(theta) + cy
+        
+        return x_rot, y_rot
+
+    def window_local_to_world(self, x_local, y_local):
+        """Converte coordenadas locais da window de volta para o sistema mundial"""
+        cx = (self.window["xmin"] + self.window["xmax"]) / 2
+        cy = (self.window["ymin"] + self.window["ymax"]) / 2
+        theta = self.window["rotation"]
+        
+        # Rotaciona e translada
+        x_world = (x_local - cx) * math.cos(theta) - (y_local - cy) * math.sin(theta) + cx
+        y_world = (x_local - cx) * math.sin(theta) + (y_local - cy) * math.cos(theta) + cy
+        
+        return x_world, y_world
+
     def clip_line_cohen_sutherland(self, line):
         (x1, y1), (x2, y2) = line.coordinates
 
-        code_start = self.compute_out_code(x1, y1)
-        code_end = self.compute_out_code(x2, y2)
+        # Converte para coordenadas locais da window
+        x1w, y1w = self.world_to_window_local(x1, y1)
+        x2w, y2w = self.world_to_window_local(x2, y2)
+
+        code_start = self.compute_out_code(x1w, y1w)
+        code_end = self.compute_out_code(x2w, y2w)
         
         while True:
-            # Caso trivial: completamente dentro
             if not (code_start | code_end):
-                return Line([(x1, y1), (x2, y2)])
+                # Converte de volta para coordenadas mundiais
+                x1f, y1f = self.window_local_to_world(x1w, y1w)
+                x2f, y2f = self.window_local_to_world(x2w, y2w)
+                return Line([(x1f, y1f), (x2f, y2f)], color=line.color)
             
-            # Caso trivial: completamente fora
             elif code_start & code_end:
                 return None
             
-            # Caso parcial: calcula interseção
             else:
                 code_out = code_start if code_start else code_end
+                
                 if code_out & self.TOP:
-                    x = (x1 + (x2 - x1) * (self.window["ymax"] - y1) / (y2 - y1)) if y2 != y1 else x1
+                    x = x1w + (x2w - x1w) * (self.window["ymax"] - y1w) / (y2w - y1w) if y2w != y1w else x1w
                     y = self.window["ymax"]
                 elif code_out & self.BOTTOM:
-                    x = (x1 + (x2 - x1) * (self.window["ymin"] - y1) / (y2 - y1)) if y2 != y1 else x1
+                    x = x1w + (x2w - x1w) * (self.window["ymin"] - y1w) / (y2w - y1w) if y2w != y1w else x1w
                     y = self.window["ymin"]
                 elif code_out & self.RIGHT:
-                    y = (y1 + (y2 - y1) * (self.window["xmax"] - x1) / (x2 - x1)) if x2 != x1 else y1
+                    y = y1w + (y2w - y1w) * (self.window["xmax"] - x1w) / (x2w - x1w) if x2w != x1w else y1w
                     x = self.window["xmax"]
                 elif code_out & self.LEFT:
-                    y = (y1 + (y2 - y1) * (self.window["xmin"] - x1) / (x2 - x1)) if x2 != x1 else y1
+                    y = y1w + (y2w - y1w) * (self.window["xmin"] - x1w) / (x2w - x1w) if x2w != x1w else y1w
                     x = self.window["xmin"]
-                
+
                 if code_out == code_start:
-                    x1, y1 = x, y
-                    code_start = self.compute_out_code(x1, y1)
+                    x1w, y1w = x, y
+                    code_start = self.compute_out_code(x1w, y1w)
                 else:
-                    x2, y2 = x, y
-                    code_end = self.compute_out_code(x2, y2)
-    
+                    x2w, y2w = x, y
+                    code_end = self.compute_out_code(x2w, y2w)
+
     def clip_line_liang_barsky(self, line):
         (x1, y1), (x2, y2) = line.coordinates
 
-        dx = x2 - x1
-        dy = y2 - y1
+        # Converte para coordenadas locais da window
+        x1w, y1w = self.world_to_window_local(x1, y1)
+        x2w, y2w = self.world_to_window_local(x2, y2)
+
+        dx = x2w - x1w
+        dy = y2w - y1w
         p = [-dx, dx, -dy, dy]
-        q = [x1 - self.window["xmin"],
-            self.window["xmax"] - x1,
-            y1 - self.window["ymin"],
-            self.window["ymax"] - y1]
+        q = [
+            x1w - self.window["xmin"],
+            self.window["xmax"] - x1w,
+            y1w - self.window["ymin"],
+            self.window["ymax"] - y1w
+        ]
         
         u1, u2 = 0.0, 1.0
-        for pi, qi in zip(p, q):
-            if pi == 0:
-                if qi < 0:
+        for i in range(4):
+            if p[i] == 0:
+                if q[i] < 0:
                     return None
             else:
-                u = qi / pi
-                if pi < 0:
+                u = q[i]/p[i]
+                if p[i] < 0:
                     u1 = max(u1, u)
                 else:
                     u2 = min(u2, u)
+
         if u1 > u2:
             return None
 
-        x1 = x1 + u1 * dx
-        y1 = y1 + u1 * dy
-        x2 = x1 + u2 * dx
-        y2 = y1 + u2 * dy
-        return Line([(x1, y1), (x2, y2)])
+        # Calcula pontos clipados em coordenadas locais
+        x1c = x1w + u1 * dx
+        y1c = y1w + u1 * dy
+        x2c = x1w + u2 * dx
+        y2c = y1w + u2 * dy
+
+        # Converte de volta para coordenadas mundiais
+        x1f, y1f = self.window_local_to_world(x1c, y1c)
+        x2f, y2f = self.window_local_to_world(x2c, y2c)
+
+        return Line([(x1f, y1f), (x2f, y2f)], color=line.color)
 
 if __name__ == "__main__":
     root = tk.Tk()
