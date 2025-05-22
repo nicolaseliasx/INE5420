@@ -446,3 +446,167 @@ class Objeto3D(GraphicObject):
             vx2, vy2 = transform(x2, y2, z2)
             canvas.create_line(vx1, vy1, vx2, vy2, 
                              fill=self.color, width=2, capstyle=tk.ROUND)
+
+###
+
+class BezierPatch(GraphicObject):
+    prefix = "BP"
+    
+    def __init__(self, control_points, color="#00aaff", resolution=20):
+        """
+        Representa um retalho bicúbico de Bézier com 16 pontos de controle.
+        
+        Args:
+            control_points (list): 16 pontos 3D em ordem de matriz 4x4
+            color (str): Cor da malha
+            resolution (int): Número de divisões para cálculo da superfície
+        """
+        if len(control_points) != 16:
+            raise ValueError("Deve haver 16 pontos de controle (4x4)")
+        super().__init__(control_points, color)
+        self.resolution = resolution
+        self.surface_points = []
+        self._compute_surface_points()
+    
+    @property
+    def type(self):
+        return "Retalho Bézier"
+    
+    def _compute_surface_points(self):
+        """Calcula os pontos da superfície usando funções de base de Bézier bicúbicas."""
+        self.surface_points = []
+        for u in np.linspace(0, 1, self.resolution):
+            for v in np.linspace(0, 1, self.resolution):
+                point = self._evaluate_bezier(u, v)
+                self.surface_points.append(point)
+    
+    def _evaluate_bezier(self, u, v):
+        """Avalia a superfície nos parâmetros u e v usando combinação linear."""
+        B = [(1 - u)**3, 
+             3 * u * (1 - u)**2, 
+             3 * u**2 * (1 - u), 
+             u**3]
+        Bv = [(1 - v)**3, 
+              3 * v * (1 - v)**2, 
+              3 * v**2 * (1 - v), 
+              v**3]
+        
+        x, y, z = 0, 0, 0
+        for i in range(4):
+            for j in range(4):
+                weight = B[i] * Bv[j]
+                px, py, pz = self.coordinates[i*4 + j]
+                x += px * weight
+                y += py * weight
+                z += pz * weight
+        return (x, y, z)
+    
+    def draw(self, canvas, transform):
+        """Desenha a superfície como uma malha de linhas projetadas com clipping."""
+        projected = [transform(x, y, z) for (x, y, z) in self.surface_points]
+        
+        # Clipping window (viewport coordinates)
+        xmin = 20
+        ymin = 20
+        xmax = canvas.winfo_width() - 20
+        ymax = canvas.winfo_height() - 20
+        
+        # Função para clipar linhas
+        def clip_line(x1, y1, x2, y2):
+            INSIDE, LEFT, RIGHT, BOTTOM, TOP = 0, 1, 2, 4, 8
+            def compute_code(x, y):
+                code = INSIDE
+                if x < xmin:
+                    code |= LEFT
+                elif x > xmax:
+                    code |= RIGHT
+                if y < ymin:
+                    code |= BOTTOM
+                elif y > ymax:
+                    code |= TOP
+                return code
+            
+            code1 = compute_code(x1, y1)
+            code2 = compute_code(x2, y2)
+            accept = False
+
+            while True:
+                if not (code1 | code2):
+                    accept = True
+                    break
+                elif code1 & code2:
+                    break
+                else:
+                    x = 0.0
+                    y = 0.0
+                    code_out = code1 if code1 else code2
+                    
+                    if code_out & TOP:
+                        x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1)
+                        y = ymax
+                    elif code_out & BOTTOM:
+                        x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1)
+                        y = ymin
+                    elif code_out & RIGHT:
+                        y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1)
+                        x = xmax
+                    elif code_out & LEFT:
+                        y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1)
+                        x = xmin
+
+                    if code_out == code1:
+                        x1, y1 = x, y
+                        code1 = compute_code(x1, y1)
+                    else:
+                        x2, y2 = x, y
+                        code2 = compute_code(x2, y2)
+            
+            if accept:
+                return (x1, y1, x2, y2)
+            else:
+                return None
+        
+        # Desenha linhas na direção u com clipping
+        for i in range(self.resolution):
+            for j in range(self.resolution - 1):
+                idx = i * self.resolution + j
+                x1, y1 = projected[idx]
+                x2, y2 = projected[idx + 1]
+                clipped = clip_line(x1, y1, x2, y2)
+                if clipped:
+                    canvas.create_line(clipped[0], clipped[1], clipped[2], clipped[3], 
+                                    fill=self.color, width=1)
+        
+        # Desenha linhas na direção v com clipping
+        for j in range(self.resolution):
+            for i in range(self.resolution - 1):
+                idx = i * self.resolution + j
+                idx_next = (i + 1) * self.resolution + j
+                x1, y1 = projected[idx]
+                x2, y2 = projected[idx_next]
+                clipped = clip_line(x1, y1, x2, y2)
+                if clipped:
+                    canvas.create_line(clipped[0], clipped[1], clipped[2], clipped[3], 
+                                    fill=self.color, width=1)
+
+class BezierSurface(GraphicObject):
+    prefix = "BS"
+    
+    def __init__(self, patches, color="#00aaff"):
+        """
+        Representa uma superfície composta por múltiplos retalhos.
+        
+        Args:
+            patches (list): Lista de objetos BezierPatch
+        """
+        super().__init__([], color)
+        self.patches = patches
+    
+    @property
+    def type(self):
+        return "Superfície Bézier"
+    
+    def draw(self, canvas, transform):
+        """Desenha todos os retalhos da superfície."""
+        for patch in self.patches:
+            patch.draw(canvas, transform)

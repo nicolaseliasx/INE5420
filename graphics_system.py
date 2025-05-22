@@ -222,23 +222,30 @@ class GraphicsSystem:
 
     def create_add_objects_menu(self):
         add_objects_window = tk.Toplevel(self.root)
-        add_objects_window.title("Adicione objetos")
-
-        # Frame principal para organizar abas e lista
-        main_frame = ttk.Frame(add_objects_window)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        add_objects_window.title("Adicionar Objetos")
+        notebook = ttk.Notebook(add_objects_window)
 
         # Abas para objetos 2D
         for obj_type in [ObjectType.PONTO, ObjectType.LINHA, ObjectType.POLIGONO, 
                         ObjectType.CURVA_BEZIER, ObjectType.B_SPLINE]:
             self.create_object_tab(obj_type, notebook)
 
+        # Nova aba para superfícies Bézier
+        bezier_tab = ttk.Frame(notebook)
+        notebook.add(bezier_tab, text="Retalho Bézier")
+        
+        ttk.Label(bezier_tab, text="16 pontos 3D (4 linhas com 4 pontos separados por ';')").pack(pady=5)
+        self.bezier_entry = ttk.Entry(bezier_tab, width=60)
+        self.bezier_entry.pack(pady=5)
+        ttk.Button(bezier_tab, text="Adicionar Retalho", command=self.add_bezier_patch).pack(pady=10)
+
         # Abas para objetos 3D
         self.create_3d_objects_tab(ObjectType.PONTO3D, notebook)
         self.create_3d_objects_tab(ObjectType.OBJETO3D, notebook)
+
+        notebook.pack(expand=True, fill='both')
+        add_objects_window.transient(self.root)
+        add_objects_window.grab_set()
 
     def create_object_tab(self, type: ObjectType, notebook):
         tab = ttk.Frame(notebook)
@@ -1070,6 +1077,45 @@ class GraphicsSystem:
         except Exception as e:
             messagebox.showerror("Erro", f"Segmentos inválidos: {str(e)}")
 
+    def add_bezier_patch(self):
+        """Adiciona um retalho bicúbico de Bézier a partir da entrada do usuário."""
+        input_str = self.bezier_entry.get().strip()
+        try:
+            if not input_str:
+                raise ValueError("Entrada vazia!")
+            
+            # Processa linhas e pontos
+            rows = input_str.split(';')
+            if len(rows) != 4:
+                raise ValueError("Deve ter 4 linhas separadas por ';'")
+            
+            control_points = []
+            for row in rows:
+                # Remove parênteses extras e espaços
+                clean_row = row.strip().replace(')(', ',').replace('(', '').replace(')', '')
+                points = eval(f'[{clean_row}]')
+                
+                if len(points) != 4:
+                    raise ValueError(f"Cada linha deve ter 4 pontos. Linha inválida: {row}")
+                
+                # Converte para tuplas 3D
+                for p in points:
+                    if len(p) != 3:
+                        raise ValueError(f"Ponto deve ser 3D (x,y,z). Ponto inválido: {p}")
+                    control_points.append((p[0], p[1], p[2]))
+            
+            if len(control_points) != 16:
+                raise ValueError(f"Total de pontos deve ser 16. Encontrados: {len(control_points)}")
+            
+            # Cria e adiciona o retalho
+            patch = BezierPatch(control_points, self.selected_color)
+            self.display_file.append(patch)
+            self._update_object_list()
+            self.redraw()
+            
+        except Exception as e:
+            messagebox.showerror("Erro", f"Entrada inválida:\n{str(e)}")
+
     def clip_object(self, obj):
         if isinstance(obj, Point):
             return obj if self.clip_point(obj) else None
@@ -1085,6 +1131,8 @@ class GraphicsSystem:
             return obj if self.clip_point_3d(obj) else None
         elif isinstance(obj, Objeto3D):
             return obj
+        elif isinstance(obj, BezierPatch):
+            return obj  # Permitir que o BezierPatch seja desenhado após o clipping interno
         return None
 
     def clip_bspline(self, bspline):
