@@ -4,7 +4,7 @@ from tkinter import filedialog
 import numpy as np
 import math
 from tkinter.colorchooser import askcolor
-from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType
+from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType, BezierPatch, BezierSurface
 from descritor_obj import DescritorOBJ
 
 
