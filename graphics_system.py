@@ -1091,9 +1091,9 @@ class GraphicsSystem:
             
             control_points = []
             for row in rows:
-                # Remove parênteses extras e espaços
-                clean_row = row.strip().replace(')(', ',').replace('(', '').replace(')', '')
-                points = eval(f'[{clean_row}]')
+                # Remove espaços e formata corretamente as tuplas
+                clean_row = row.strip().replace(' ', '').replace('),(', '),(')
+                points = eval(f'[{clean_row}]')  # Resulta em uma lista de tuplas 3D
                 
                 if len(points) != 4:
                     raise ValueError(f"Cada linha deve ter 4 pontos. Linha inválida: {row}")
