@@ -186,29 +186,60 @@ class GraphicsSystem:
         radio_frame = ttk.Frame(projection_frame)
         radio_frame.grid(row=1, column=0, columnspan=2, pady=2)
         ttk.Radiobutton(projection_frame, text="Paralela", variable=self.projection_type, style="ProjButton.TRadiobutton",
-                    value="parallel", command=self.toggle_projection_params).grid(row=1, column=0, pady=2)
+                        value="parallel", command=self.toggle_projection_params).grid(row=1, column=0, pady=2)
         ttk.Radiobutton(projection_frame, text="Perspectiva", variable=self.projection_type, style="ProjButton.TRadiobutton",
-                    value="perspective", command=self.toggle_projection_params).grid(row=2, column=0, pady=2)
+                        value="perspective", command=self.toggle_projection_params).grid(row=2, column=0, pady=2)
         
         # Frame para os parâmetros de perspectiva (inicialmente oculto)
         self.perspective_frame = ttk.Frame(projection_frame)
+        # Este grid é controlado por toggle_projection_params
         
         # Parâmetros da projeção perspectiva
-        ttk.Label(self.perspective_frame, text="Distância (d):", style="CoordsLabel.TLabel").grid(row=3, column=0, pady=2)
+        ttk.Label(self.perspective_frame, text="Distância (d):", style="CoordsLabel.TLabel").grid(row=0, column=0, pady=2, sticky=tk.W)
         self.d_entry = ttk.Entry(self.perspective_frame)
         self.d_entry.insert(0, "200")
-        self.d_entry.grid(row=4, column=0, pady=2)
-        ttk.Button(self.perspective_frame, text="Aplicar", 
-                command=self.redraw).grid(row=5, column=0, pady=2)
+        self.d_entry.grid(row=1, column=0, pady=2, sticky=tk.EW)
         
-        self.toggle_projection_params()
+        # Botão Aplicar 'd'
+        ttk.Button(self.perspective_frame, text="Aplicar d",
+                   command=self.redraw).grid(row=2, column=0, pady=5, sticky=tk.EW)
+
+        # Novos botões para Grande Angular e Teleobjetiva
+        ttk.Button(self.perspective_frame, text="Grande Angular (-d)",
+                   command=self.apply_wide_angle_effect).grid(row=3, column=0, pady=2, sticky=tk.EW)
+        ttk.Button(self.perspective_frame, text="Teleobjetiva (+d)",
+                   command=self.apply_telephoto_effect).grid(row=4, column=0, pady=2, sticky=tk.EW)
+        
+        self.toggle_projection_params() # Chama para configurar a visibilidade inicial
 
     def toggle_projection_params(self):
         if self.projection_type.get() == "perspective":
-            self.perspective_frame.grid(row=3, column=0, pady=5)
+            self.perspective_frame.grid(row=3, column=0, pady=5, sticky=tk.EW)
         else:
             self.perspective_frame.grid_forget()
         self.redraw()
+
+    def apply_wide_angle_effect(self):
+        try:
+            current_d = float(self.d_entry.get())
+            # Reduz 'd' para efeito grande angular. Não deixe ser zero ou negativo.
+            new_d = max(50, current_d * 0.75) # Exemplo: reduz em 25%, mínimo de 50
+            self.d_entry.delete(0, tk.END)
+            self.d_entry.insert(0, str(new_d))
+            self.redraw()
+        except ValueError:
+            messagebox.showerror("Erro", "Valor de 'd' inválido.")
+
+    def apply_telephoto_effect(self):
+        try:
+            current_d = float(self.d_entry.get())
+            # Aumenta 'd' para efeito teleobjetiva.
+            new_d = current_d * 1.25 # Exemplo: aumenta em 25%
+            self.d_entry.delete(0, tk.END)
+            self.d_entry.insert(0, str(new_d))
+            self.redraw()
+        except ValueError:
+            messagebox.showerror("Erro", "Valor de 'd' inválido.")
 
     def _create_move_controls(self):
         move_frame = ttk.Frame(self.control_frame)
