@@ -1185,23 +1185,93 @@ class GraphicsSystem:
             messagebox.showerror("Erro", f"Entrada inválida:\n{str(e)}")
 
     def clip_object(self, obj):
-        if isinstance(obj, Point):
+        if isinstance(obj, Point): # Objeto 2D Ponto
             return obj if self.clip_point(obj) else None
-        elif isinstance(obj, Line):
+        elif isinstance(obj, Line): # Objeto 2D Linha
             return self.clip_line(obj)
-        elif isinstance(obj, Polygon):
+        elif isinstance(obj, Polygon): # Objeto 2D Polígono
             return self.clip_polygon(obj)
         elif isinstance(obj, Curve2D):
-            return self.clip_curve(obj)
+            obj.clip({ # Curve2D já tem seu próprio método de clip que usa window
+                "xmin": self.window["xmin"], "ymin": self.window["ymin"],
+                "xmax": self.window["xmax"], "ymax": self.window["ymax"]
+            })
+            return obj # Retorna a curva com seus segmentos clipados internamente
         elif isinstance(obj, BSpline):
-            return self.clip_bspline(obj)
+            obj.clip({ # BSpline já tem seu próprio método de clip
+                "xmin": self.window["xmin"], "ymin": self.window["ymin"],
+                "xmax": self.window["xmax"], "ymax": self.window["ymax"]
+            })
+            return obj # Retorna a b-spline com visibilidade ajustada
+
         elif isinstance(obj, Ponto3D):
-            return obj if self.clip_point_3d(obj) else None
+            x, y, z = obj.coordinates[0] # Ponto3D armazena coords como [(x,y,z)]
+            projected_coords = self.get_projected_2d_coords(x, y, z)
+            if projected_coords:
+                # Cria um objeto Ponto 2D temporário para clipping
+                # As coordenadas de 'projected_coords' já estão no "espaço da window"
+                temp_point_2d = Point([projected_coords], color=obj.color) # Point espera uma lista de tuplas
+                if self.clip_point(temp_point_2d): # clip_point usa self.window
+                    # Retorna um novo objeto Point 2D com as coordenadas projetadas
+                    # O nome do objeto original é perdido aqui, mas é para desenho.
+                    return Point([projected_coords], color=obj.color) 
+            return None
+
         elif isinstance(obj, Objeto3D):
-            return obj
+            clipped_2d_lines = []
+            for p1_3d, p2_3d in obj.segments:
+                # Projeta os dois pontos do segmento 3D para 2D
+                p1_2d_proj = self.get_projected_2d_coords(p1_3d[0], p1_3d[1], p1_3d[2])
+                p2_2d_proj = self.get_projected_2d_coords(p2_3d[0], p2_3d[1], p2_3d[2])
+
+                if p1_2d_proj and p2_2d_proj: # Se ambos os pontos puderam ser projetados
+                    # Cria um objeto Linha 2D temporário com as coordenadas projetadas
+                    line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
+                    # Aplica o clipping 2D (Cohen-Sutherland ou Liang-Barsky)
+                    clipped_line_segment = self.clip_line(line_to_clip) 
+                    if clipped_line_segment:
+                        clipped_2d_lines.append(clipped_line_segment)
+            return clipped_2d_lines # Retorna uma lista de objetos Linha 2D clipados
+
         elif isinstance(obj, BezierPatch):
-            return self.clip_bezier_patch(obj)
-        return None
+            # Similar ao Objeto3D, mas iterando sobre as linhas da malha da superfície
+            clipped_patch_lines = []
+            resolution = obj.resolution
+            # obj.surface_points são os pontos 3D da superfície já calculados
+            
+            # Projetar todos os pontos da superfície primeiro
+            projected_surface_points = []
+            for pt3d in obj.surface_points:
+                proj_pt = self.get_projected_2d_coords(pt3d[0], pt3d[1], pt3d[2])
+                projected_surface_points.append(proj_pt) # Pode conter Nones
+
+            # Linhas na direção U
+            for i in range(resolution):
+                for j in range(resolution - 1):
+                    idx1 = i * resolution + j
+                    idx2 = i * resolution + j + 1
+                    p1_2d_proj = projected_surface_points[idx1]
+                    p2_2d_proj = projected_surface_points[idx2]
+                    if p1_2d_proj and p2_2d_proj:
+                        line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
+                        clipped_segment = self.clip_line(line_to_clip)
+                        if clipped_segment:
+                            clipped_patch_lines.append(clipped_segment)
+            # Linhas na direção V
+            for j in range(resolution):
+                for i in range(resolution - 1):
+                    idx1 = i * resolution + j
+                    idx2 = (i + 1) * resolution + j
+                    p1_2d_proj = projected_surface_points[idx1]
+                    p2_2d_proj = projected_surface_points[idx2]
+                    if p1_2d_proj and p2_2d_proj:
+                        line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
+                        clipped_segment = self.clip_line(line_to_clip)
+                        if clipped_segment:
+                            clipped_patch_lines.append(clipped_segment)
+            return clipped_patch_lines
+            
+        return None 
     
     def clip_bezier_patch(self, bezier_patch):
         clipped_lines = []
@@ -1288,15 +1358,26 @@ class GraphicsSystem:
 
     def redraw(self):
         self.canvas.delete("all")
-        for obj in self.display_file:
-            clipped = self.clip_object(obj)
-            if clipped:
-                if isinstance(clipped, list):  # Retalho Bézier retorna lista de linhas
-                    for line in clipped:
-                        line.draw(self.canvas, self.viewport_transform)
-                else:
-                    clipped.draw(self.canvas, self.viewport_transform)
         self._draw_viewport()
+
+        for obj_original in self.display_file:
+            # clip_object agora lida com a projeção 3D para 2D e o clipping 2D subsequente.
+            # Para objetos 3D, ele retorna uma lista de primitivas 2D (Lines) ou um Point 2D.
+            # Para objetos 2D, ele retorna o objeto 2D clipado ou None.
+            drawable_primitives = self.clip_object(obj_original)
+
+            if drawable_primitives:
+                if isinstance(drawable_primitives, list): 
+                    # Caso de Objeto3D ou BezierPatch, que retornam lista de Linhas 2D
+                    for primitive_2d in drawable_primitives:
+                        # primitive_2d é um objeto Line (ou Point) com coordenadas já no "espaço da window"
+                        # viewport_transform (parte 2D) fará a conversão de window para viewport
+                        primitive_2d.draw(self.canvas, self.viewport_transform)
+                else: 
+                    # Caso de Point, Line, Polygon, Curve2D, BSpline (2D originais ou Ponto3D projetado)
+                    # As coordenadas já estão no "espaço da window" (para Ponto3D projetado) ou são originais (para 2D)
+                    # viewport_transform (parte 2D) fará a conversão de window para viewport
+                    drawable_primitives.draw(self.canvas, self.viewport_transform)
 
     def parse_input(self, coords_entry):
         try:
@@ -1503,6 +1584,108 @@ class GraphicsSystem:
         x2f, y2f = self.window_local_to_world(x2c, y2c)
 
         return Line([(x1f, y1f), (x2f, y2f)], color=line.color)
+    
+    def get_projected_2d_coords(self, x_world, y_world, z_world):
+        """
+        Transforma um ponto 3D do mundo para coordenadas 2D no plano de projeção,
+        compatíveis com self.window para clipping 2D.
+        Retorna (x_proj, y_proj) ou None se a projeção não for possível.
+        """
+        try:
+            d = float(self.d_entry.get())
+            if d <= 1e-6: # d deve ser positivo e não muito pequeno
+                # messagebox.showwarning("Aviso", "Distância de projeção 'd' muito pequena ou inválida. Usando valor padrão.")
+                d = 200 
+        except ValueError:
+            d = 200
+
+        # VRP (View Reference Point) - Centro da window, no plano z=0 do mundo
+        vrp = np.array([
+            (self.window["xmin"] + self.window["xmax"]) / 2,
+            (self.window["ymin"] + self.window["ymax"]) / 2,
+            0  # Assumindo VRP no plano XY do mundo para simplificar a câmera canônica inicial
+        ])
+        
+        # VPN (View Plane Normal) - Olhando ao longo do eixo Z do mundo
+        vpn = np.array([0, 0, 1])
+        
+        # VUP (View Up Vector) - Eixo Y do mundo como "para cima"
+        vup = np.array([0, 1, 0])
+        
+        # Normalizar VPN
+        n = vpn / np.linalg.norm(vpn)
+        # Calcular u (eixo x da view)
+        u = np.cross(vup, n)
+        if np.linalg.norm(u) < 1e-6: # vup e n são colineares
+            # Tentar um vup alternativo se o padrão for problemático (ex: olhando reto para cima/baixo)
+            if abs(n[1]) > 0.99: # n é próximo de (0, +/-1, 0)
+                u = np.cross(np.array([0,0,1]), n) # Usar Z global como up temporário
+            else: 
+                u = np.cross(np.array([1,0,0]), n) # Usar X global como up temporário
+
+        u = u / np.linalg.norm(u)
+        # Calcular v (eixo y da view)
+        v = np.cross(n, u)
+
+        # Matriz de Translação para levar VRP à origem
+        T_vrp = np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [-vrp[0], -vrp[1], -vrp[2], 1]
+        ])
+
+        # Matriz de Rotação para alinhar eixos do mundo com eixos da view
+        R_view = np.array([
+            [u[0], v[0], n[0], 0], # Colunas são os eixos da view no sistema do mundo
+            [u[1], v[1], n[1], 0],
+            [u[2], v[2], n[2], 0],
+            [0,    0,    0,    1]
+        ])
+  
+        R_align = np.array([
+            [u[0], v[0], n[0], 0],
+            [u[1], v[1], n[1], 0],
+            [u[2], v[2], n[2], 0],
+            [0,    0,    0,    1]
+        ])
+
+        R_matrix_original_style = np.array([
+            [u[0], u[1], u[2], 0],
+            [v[0], v[1], v[2], 0],
+            [n[0], n[1], n[2], 0],
+            [0,    0,    0,    1]
+        ])
+        T_matrix_original_style = np.array([
+            [1, 0, 0, -vrp[0]],
+            [0, 1, 0, -vrp[1]],
+            [0, 0, 1, -vrp[2]],
+            [0, 0, 0, 1]
+        ])
+        M_view_transform_col = R_matrix_original_style @ T_matrix_original_style # Para P_view_col = M @ P_world_col
+
+        point_world_col = np.array([x_world, y_world, z_world, 1]).reshape(4,1)
+        transformed_view_col = M_view_transform_col @ point_world_col
+        
+        x_v, y_v, z_v = transformed_view_col[0,0], transformed_view_col[1,0], transformed_view_col[2,0]
+
+        if self.projection_type.get() == "parallel":
+            x_proj = x_v
+            y_proj = y_v
+        elif self.projection_type.get() == "perspective":
+            # COP está em (0,0,-d) no sistema da view, plano de projeção em z_view=0
+            denominator = z_v + d 
+            if abs(denominator) < 1e-6: # Evita divisão por zero
+                return None
+            if denominator <= 0: # Ponto está no COP ou atrás dele (inválido para esta projeção)
+                 return None
+
+            x_proj = (x_v * d) / denominator
+            y_proj = (y_v * d) / denominator
+        else:
+            return None # Tipo de projeção desconhecido
+            
+        return x_proj, y_proj
 
 if __name__ == "__main__":
     root = tk.Tk()
