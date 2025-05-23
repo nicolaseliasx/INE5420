@@ -426,16 +426,20 @@ class Objeto3D(GraphicObject):
 
 
 class BezierPatch(GraphicObject):
+    """
+        DOC IAgen:
+        Foi usado IA para estruturar qual a melhor maneira de representar um retalho de Bézier e exemplos de entrada
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor maneira de representar um retalho de Bézier em Python? dado aq estrutura atual do meu codigo (Outros objetos):
+        copiando codigo base e colando no prompt
+    """
     prefix = "BP"
     
     def __init__(self, control_points, color="#00aaff", resolution=20):
         """
         Representa um retalho bicúbico de Bézier com 16 pontos de controle.
-        
-        Args:
-            control_points (list): 16 pontos 3D em ordem de matriz 4x4
-            color (str): Cor da malha
-            resolution (int): Número de divisões para cálculo da superfície
         """
         if len(control_points) != 16:
             raise ValueError("Deve haver 16 pontos de controle (4x4)")
@@ -457,7 +461,16 @@ class BezierPatch(GraphicObject):
                 self.surface_points.append((x, y, z))
     
     def _evaluate_bezier(self, u, v):
-        """Avalia a superfície nos parâmetros u e v usando combinação linear."""
+        """
+        Avalia a superfície nos parâmetros u e v usando combinação linear.
+
+        DOC IAgen:
+        Foi usado IA para entender melhor como usar a combinação linear para calcular os pontos da superfície
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor de escrever um codigo para calcular os pontos de uma superficie de bezier usando combinação linear?
+        """
         B = [(1 - u)**3, 
              3 * u * (1 - u)**2, 
              3 * u**2 * (1 - u), 
@@ -500,15 +513,19 @@ class BezierPatch(GraphicObject):
                 canvas.create_line(x1, y1, x2, y2, fill=self.color, width=1)
 
 class BezierSurface(GraphicObject):
+    """
+        DOC IAgen:
+        Foi usado IA para estruturar qual a melhor maneira de representar uma superficie de bezier e exemplos de entrada
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor maneira de representar uma superficie de bezier em Python? dado aq estrutura atual do meu codigo (Outros objetos):
+        copiando codigo base e colando no prompt
+    """
     prefix = "BS"
     
     def __init__(self, patches, color="#00aaff"):
-        """
-        Representa uma superfície composta por múltiplos retalhos.
-        
-        Args:
-            patches (list): Lista de objetos BezierPatch
-        """
+        """Representa uma superfície composta por múltiplos retalhos."""
         super().__init__([], color)
         self.patches = patches
     

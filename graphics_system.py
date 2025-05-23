@@ -14,6 +14,16 @@ class GraphicsSystem:
     INSIDE, LEFT, RIGHT, BOTTOM, TOP = 0, 1, 2, 4, 8
 
     def __init__(self, root):
+        """
+        Parte de interface grafica (parte de Tkinter, botoes inputs e etc, parte visual) foi gerada inteiramente por IAs
+
+        DOC IAgen:
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Adapte a interface atual para comportar os requisitos da entrega X 
+        (Cola os requisitos da entrega X e o codigo atual da interface (Tkinter))
+        """
         self.root = root
         self.root.configure(bg="#2d2d2d")
         self.root.wm_minsize(1020, 700)
@@ -548,7 +558,7 @@ class GraphicsSystem:
             self.update_transform_list()
 
     def apply_all_transformations(self, selected_name, window):
-        combined_matrix = np.identity(3)
+        combined_matrix = np.identity(4)  # Matriz 4x4 para suportar 3D
         for t in self.temp_transformations:
             matrix = self.generate_matrix(t["type"], t["params"], selected_name)
             combined_matrix = combined_matrix @ matrix
@@ -557,13 +567,35 @@ class GraphicsSystem:
         for obj in self.display_file:
             if obj.name == selected_name:
                 new_coords = []
-                for x, y in obj.coordinates:
-                    point = np.array([x, y, 1])
-                    transformed_point = point @ combined_matrix
-                    new_coords.append((transformed_point[0], transformed_point[1]))
+                
+                # Verifica o tipo de objeto
+                if isinstance(obj, (Ponto3D, Objeto3D, BezierPatch, BezierSurface)):
+                    # Processamento para objetos 3D
+                    for coord in obj.coordinates:
+                        x, y, z = coord[:3]  # Pega os 3 primeiros valores
+                        point = np.array([x, y, z, 1])  # Coordenada homogênea
+                        transformed_point = point @ combined_matrix
+                        new_coords.append((
+                            transformed_point[0], 
+                            transformed_point[1], 
+                            transformed_point[2]
+                        ))
+                        
+                else:
+                    # Processamento para objetos 2D
+                    for coord in obj.coordinates:
+                        x, y = coord[:2]  # Pega apenas x,y
+                        point = np.array([x, y, 0, 1])  # Z=0 para 2D
+                        transformed_point = point @ combined_matrix
+                        new_coords.append((
+                            transformed_point[0], 
+                            transformed_point[1]
+                        ))
+                
                 obj.coordinates = new_coords
                 self.redraw()
                 break
+        
         window.destroy()
 
     def get_params_from_tab(self, tab_name):
@@ -777,6 +809,15 @@ class GraphicsSystem:
             
             return (vx, vy)
         else:  # Transformação 3D
+            """
+            Solicitamos a ajuda de IA para aprender a fazer transformações 3D
+
+            DOC IAgen:
+            DeepSeek https://chat.deepseek.com
+
+            Prompt usado:
+            "Como fazer a transformação de um ponto 3D para uma viewport 2D, considerando rotação e perspectiva?"
+            """
             try:
                 d = float(self.d_entry.get())
             except ValueError:
@@ -1022,49 +1063,56 @@ class GraphicsSystem:
         pivot_combobox.pack(pady=5)
 
     def apply_all_transformations(self, selected_name, window):
-        # Encontra o objeto
-        obj = next((o for o in self.display_file if o.name == selected_name), None)
-        if not obj:
-            messagebox.showerror("Erro", "Objeto não encontrado!")
-            window.destroy()
-            return
-        
-        # Combina todas as transformações
-        combined_matrix = np.identity(4 if isinstance(obj, (Ponto3D, Objeto3D)) else 3)
-        
+        """
+        DOC IAgen:
+        Usado para entender como aplicar transformações 3D em objetos 3D
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Como posso adaptar minhas transformacoes atuais para comportar objetos 3D? metodo passado como contexto apply_all_transformations
+        """
+        combined_matrix = np.identity(4)  # Matriz 4x4 para 3D
+
+        # Construir matriz combinada
         for t in self.temp_transformations:
-            if isinstance(obj, (Ponto3D, Objeto3D)):
-                matrix = self.generate_matrix_3d(t["type"], t["params"], selected_name)
-            else:
-                matrix = self.generate_matrix(t["type"], t["params"], selected_name)
+            matrix = self.generate_matrix(t["type"], t["params"], selected_name)
             combined_matrix = combined_matrix @ matrix
-        
-        if isinstance(obj, Ponto3D):
-            x, y, z = obj.coordinates[0]
-            point = np.array([x, y, z, 1])
-            transformed_point = point @ combined_matrix
-            obj.coordinates = [(transformed_point[0], transformed_point[1], transformed_point[2])]
-        
-        elif isinstance(obj, Objeto3D):
-            new_segments = []
-            for segment in obj.segments:
-                new_segment = []
-                for point in segment:
-                    x, y, z = point
-                    transformed_point = np.array([x, y, z, 1]) @ combined_matrix
-                    new_segment.append((transformed_point[0], transformed_point[1], transformed_point[2]))
-                new_segments.append(tuple(new_segment))
-            obj.segments = new_segments
-        
-        else:
-            # Transformação para objetos 2D
-            new_coords = []
-            for x, y in obj.coordinates:
-                point = np.array([x, y, 1])
-                transformed_point = point @ combined_matrix
-                new_coords.append((transformed_point[0], transformed_point[1]))
-            obj.coordinates = new_coords
-        
+
+        # Aplicar transformação ao objeto selecionado
+        for obj in self.display_file:
+            if obj.name == selected_name:
+                new_coords = []
+                
+                # Verificar tipo de objeto
+                if isinstance(obj, (Ponto3D, Objeto3D, BezierPatch, BezierSurface)):
+                    # Processar coordenadas 3D
+                    for coord in obj.coordinates:
+                        # Garantir que temos pelo menos 3 coordenadas (x,y,z)
+                        x = coord[0]
+                        y = coord[1] if len(coord) > 1 else 0
+                        z = coord[2] if len(coord) > 2 else 0
+                        
+                        # Aplicar transformação
+                        point = np.array([x, y, z, 1])
+                        transformed = combined_matrix @ point
+                        new_coords.append((transformed[0], transformed[1], transformed[2]))
+                        
+                else:
+                    # Processar coordenadas 2D
+                    for coord in obj.coordinates:
+                        # Garantir que temos pelo menos 2 coordenadas (x,y)
+                        x = coord[0]
+                        y = coord[1] if len(coord) > 1 else 0
+                        
+                        # Aplicar transformação com Z=0
+                        point = np.array([x, y, 0, 1])
+                        transformed = combined_matrix @ point
+                        new_coords.append((transformed[0], transformed[1]))
+                
+                # Atualizar coordenadas do objeto
+                obj.coordinates = new_coords
+                break
+
         self.redraw()
         window.destroy()
 
@@ -1146,7 +1194,16 @@ class GraphicsSystem:
             messagebox.showerror("Erro", f"Segmentos inválidos: {str(e)}")
 
     def add_bezier_patch(self):
-        """Adiciona um retalho bicúbico de Bézier a partir da entrada do usuário."""
+        """
+        Adiciona um retalho bicúbico de Bézier a partir da entrada do usuário.
+
+        DOC IAgen:
+        Foi usado IA fazer o parse da entrada do usuario
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Dado essa classe de superficie BezierPatch, como posso fazer o parse de uma entrada do usuario? Colar codigo da classe
+        """
         input_str = self.bezier_entry.get().strip()
         try:
             if not input_str:
@@ -1159,9 +1216,8 @@ class GraphicsSystem:
             
             control_points = []
             for row in rows:
-                # Remove espaços e formata corretamente as tuplas
                 clean_row = row.strip().replace(' ', '').replace('),(', '),(')
-                points = eval(f'[{clean_row}]')  # Resulta em uma lista de tuplas 3D
+                points = eval(f'[{clean_row}]')
                 
                 if len(points) != 4:
                     raise ValueError(f"Cada linha deve ter 4 pontos. Linha inválida: {row}")
@@ -1192,25 +1248,25 @@ class GraphicsSystem:
         elif isinstance(obj, Polygon): # Objeto 2D Polígono
             return self.clip_polygon(obj)
         elif isinstance(obj, Curve2D):
-            obj.clip({ # Curve2D já tem seu próprio método de clip que usa window
+            obj.clip({
                 "xmin": self.window["xmin"], "ymin": self.window["ymin"],
                 "xmax": self.window["xmax"], "ymax": self.window["ymax"]
             })
-            return obj # Retorna a curva com seus segmentos clipados internamente
+            return obj
         elif isinstance(obj, BSpline):
-            obj.clip({ # BSpline já tem seu próprio método de clip
+            obj.clip({
                 "xmin": self.window["xmin"], "ymin": self.window["ymin"],
                 "xmax": self.window["xmax"], "ymax": self.window["ymax"]
             })
-            return obj # Retorna a b-spline com visibilidade ajustada
+            return obj
 
         elif isinstance(obj, Ponto3D):
-            x, y, z = obj.coordinates[0] # Ponto3D armazena coords como [(x,y,z)]
+            x, y, z = obj.coordinates[0] 
             projected_coords = self.get_projected_2d_coords(x, y, z)
             if projected_coords:
                 # Cria um objeto Ponto 2D temporário para clipping
                 # As coordenadas de 'projected_coords' já estão no "espaço da window"
-                temp_point_2d = Point([projected_coords], color=obj.color) # Point espera uma lista de tuplas
+                temp_point_2d = Point([projected_coords], color=obj.color)
                 if self.clip_point(temp_point_2d): # clip_point usa self.window
                     # Retorna um novo objeto Point 2D com as coordenadas projetadas
                     # O nome do objeto original é perdido aqui, mas é para desenho.
@@ -1232,8 +1288,17 @@ class GraphicsSystem:
                     if clipped_line_segment:
                         clipped_2d_lines.append(clipped_line_segment)
             return clipped_2d_lines # Retorna uma lista de objetos Linha 2D clipados
-
         elif isinstance(obj, BezierPatch):
+            """
+            Faz o clipping de um BezierPatch, retornando uma lista de linhas clipadas.
+
+            DOC IAgen:
+            Foi usado IA parfa entender como clipar um objeto 3D em 2D e como podemos fazer essa conversão
+            DeepSeek https://chat.deepseek.com
+
+            Prompt usado:
+            Como funciona o clipping de um objeto 3D para 2D em computação gráfica? Explique como converter e recortar objetos 3D fora da visão do canvas.
+            """
             # Similar ao Objeto3D, mas iterando sobre as linhas da malha da superfície
             clipped_patch_lines = []
             resolution = obj.resolution
@@ -1243,7 +1308,7 @@ class GraphicsSystem:
             projected_surface_points = []
             for pt3d in obj.surface_points:
                 proj_pt = self.get_projected_2d_coords(pt3d[0], pt3d[1], pt3d[2])
-                projected_surface_points.append(proj_pt) # Pode conter Nones
+                projected_surface_points.append(proj_pt)
 
             # Linhas na direção U
             for i in range(resolution):
@@ -1273,33 +1338,6 @@ class GraphicsSystem:
             
         return None 
     
-    def clip_bezier_patch(self, bezier_patch):
-        clipped_lines = []
-        resolution = bezier_patch.resolution
-        line_color = bezier_patch.color
-
-        # Gera linhas na direção U
-        for i in range(resolution):
-            for j in range(resolution - 1):
-                p1 = bezier_patch.surface_points[i * resolution + j]
-                p2 = bezier_patch.surface_points[i * resolution + j + 1]
-                line = Line([(p1[0], p1[1]), (p2[0], p2[1])], color=line_color)
-                clipped_line = self.clip_line(line)
-                if clipped_line:
-                    clipped_lines.append(clipped_line)
-
-        # Gera linhas na direção V
-        for j in range(resolution):
-            for i in range(resolution - 1):
-                p1 = bezier_patch.surface_points[i * resolution + j]
-                p2 = bezier_patch.surface_points[(i + 1) * resolution + j]
-                line = Line([(p1[0], p1[1]), (p2[0], p2[1])], color=line_color)
-                clipped_line = self.clip_line(line)
-                if clipped_line:
-                    clipped_lines.append(clipped_line)
-
-        return clipped_lines
-
     def clip_bspline(self, bspline):
         bspline.clip({
             "xmin": self.window["xmin"],
@@ -1475,7 +1513,7 @@ class GraphicsSystem:
         return code
 
     def world_to_window_local(self, x, y):
-        """Converte coordenadas mundiais para o sistema local da window (considera rotação)"""
+        """ Converte coordenadas mundiais para o sistema local da window (considera rotação)"""
         cx = (self.window["xmin"] + self.window["xmax"]) / 2
         cy = (self.window["ymin"] + self.window["ymax"]) / 2
         theta = -self.window["rotation"]
@@ -1590,6 +1628,13 @@ class GraphicsSystem:
         Transforma um ponto 3D do mundo para coordenadas 2D no plano de projeção,
         compatíveis com self.window para clipping 2D.
         Retorna (x_proj, y_proj) ou None se a projeção não for possível.
+
+        DOC IAgen:
+        Foi usado IA entender como representrar um objeto com cordenadas 3D em 2D no plano de projecao em Python
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Como representrar um objeto com cordenadas 3D em 2D no plano de projecao em Python, demos o contexto do codigo atual antes da implementacao
         """
         try:
             d = float(self.d_entry.get())
