@@ -66,29 +66,6 @@ class GraphicObject(ABC):
             coords.extend([vx0, vy0])
         return coords
     
-    # def get_coordinates(self, transform):
-    #     coords = []
-    #     for point in self.coordinates:
-    #         if len(point) == 2:  # 2D
-    #             x, y = point
-    #             vx, vy = transform(x, y)
-    #             coords.extend([vx, vy])
-    #         elif len(point) == 3:  # 3D
-    #             x, y, z = point
-    #             vx, vy = transform(x, y, z)
-    #             coords.extend([vx, vy])
-        
-    #     if len(self.coordinates) >= 3:
-    #         first_point = self.coordinates[0]
-    #         if len(first_point) == 2:
-    #             x0, y0 = first_point
-    #             vx0, vy0 = transform(x0, y0)
-    #         else:
-    #             x0, y0, z0 = first_point
-    #             vx0, vy0 = transform(x0, y0, z0)
-    #         coords.extend([vx0, vy0])
-    #     return coords
-
     @classmethod
     def reset_counter(cls):
         cls._counter = 0
