@@ -66,29 +66,6 @@ class GraphicObject(ABC):
             coords.extend([vx0, vy0])
         return coords
     
-    # def get_coordinates(self, transform):
-    #     coords = []
-    #     for point in self.coordinates:
-    #         if len(point) == 2:  # 2D
-    #             x, y = point
-    #             vx, vy = transform(x, y)
-    #             coords.extend([vx, vy])
-    #         elif len(point) == 3:  # 3D
-    #             x, y, z = point
-    #             vx, vy = transform(x, y, z)
-    #             coords.extend([vx, vy])
-        
-    #     if len(self.coordinates) >= 3:
-    #         first_point = self.coordinates[0]
-    #         if len(first_point) == 2:
-    #             x0, y0 = first_point
-    #             vx0, vy0 = transform(x0, y0)
-    #         else:
-    #             x0, y0, z0 = first_point
-    #             vx0, vy0 = transform(x0, y0, z0)
-    #         coords.extend([vx0, vy0])
-    #     return coords
-
     @classmethod
     def reset_counter(cls):
         cls._counter = 0
@@ -446,3 +423,117 @@ class Objeto3D(GraphicObject):
             vx2, vy2 = transform(x2, y2, z2)
             canvas.create_line(vx1, vy1, vx2, vy2, 
                              fill=self.color, width=2, capstyle=tk.ROUND)
+
+
+class BezierPatch(GraphicObject):
+    """
+        DOC IAgen:
+        Foi usado IA para estruturar qual a melhor maneira de representar um retalho de Bézier e exemplos de entrada
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor maneira de representar um retalho de Bézier em Python? dado aq estrutura atual do meu codigo (Outros objetos):
+        copiando codigo base e colando no prompt
+    """
+    prefix = "BP"
+    
+    def __init__(self, control_points, color="#00aaff", resolution=20):
+        """
+        Representa um retalho bicúbico de Bézier com 16 pontos de controle.
+        """
+        if len(control_points) != 16:
+            raise ValueError("Deve haver 16 pontos de controle (4x4)")
+        super().__init__(control_points, color)
+        self.resolution = resolution
+        self.surface_points = [] 
+        self._compute_surface_points()
+
+    @property
+    def type(self):
+        return "Retalho Bézier"
+    
+    def _compute_surface_points(self):
+        """Calcula os pontos da superfície em 3D."""
+        self.surface_points = []
+        for u in np.linspace(0, 1, self.resolution):
+            for v in np.linspace(0, 1, self.resolution):
+                x, y, z = self._evaluate_bezier(u, v)
+                self.surface_points.append((x, y, z))
+    
+    def _evaluate_bezier(self, u, v):
+        """
+        Avalia a superfície nos parâmetros u e v usando combinação linear.
+
+        DOC IAgen:
+        Foi usado IA para entender melhor como usar a combinação linear para calcular os pontos da superfície
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor de escrever um codigo para calcular os pontos de uma superficie de bezier usando combinação linear?
+        """
+        B = [(1 - u)**3, 
+             3 * u * (1 - u)**2, 
+             3 * u**2 * (1 - u), 
+             u**3]
+        Bv = [(1 - v)**3, 
+              3 * v * (1 - v)**2, 
+              3 * v**2 * (1 - v), 
+              v**3]
+        
+        x, y, z = 0, 0, 0
+        for i in range(4):
+            for j in range(4):
+                weight = B[i] * Bv[j]
+                px, py, pz = self.coordinates[i*4 + j]
+                x += px * weight
+                y += py * weight
+                z += pz * weight
+        return (x, y, z)
+    
+    def draw(self, canvas, transform):
+        """Desenha a superfície usando a transformação 3D para 2D."""
+        # Projeta pontos 3D para 2D
+        projected = [transform(x, y, z) for (x, y, z) in self.surface_points]
+        
+        # Desenha linhas na direção U (horizontal)
+        for i in range(self.resolution):
+            for j in range(self.resolution - 1):
+                idx = i * self.resolution + j
+                x1, y1 = projected[idx]
+                x2, y2 = projected[idx + 1]
+                canvas.create_line(x1, y1, x2, y2, fill=self.color, width=1)
+        
+        # Desenha linhas na direção V (vertical)
+        for j in range(self.resolution):
+            for i in range(self.resolution - 1):
+                idx = i * self.resolution + j
+                idx_next = (i + 1) * self.resolution + j
+                x1, y1 = projected[idx]
+                x2, y2 = projected[idx_next]
+                canvas.create_line(x1, y1, x2, y2, fill=self.color, width=1)
+
+class BezierSurface(GraphicObject):
+    """
+        DOC IAgen:
+        Foi usado IA para estruturar qual a melhor maneira de representar uma superficie de bezier e exemplos de entrada
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor maneira de representar uma superficie de bezier em Python? dado aq estrutura atual do meu codigo (Outros objetos):
+        copiando codigo base e colando no prompt
+    """
+    prefix = "BS"
+    
+    def __init__(self, patches, color="#00aaff"):
+        """Representa uma superfície composta por múltiplos retalhos."""
+        super().__init__([], color)
+        self.patches = patches
+    
+    @property
+    def type(self):
+        return "Superfície Bézier"
+    
+    def draw(self, canvas, transform):
+        """Desenha todos os retalhos da superfície."""
+        for patch in self.patches:
+            patch.draw(canvas, transform)

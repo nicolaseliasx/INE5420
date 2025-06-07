@@ -4,7 +4,7 @@ from tkinter import filedialog
 import numpy as np
 import math
 from tkinter.colorchooser import askcolor
-from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType
+from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType, BezierPatch, BezierSurface
 from descritor_obj import DescritorOBJ
 
 
@@ -14,6 +14,16 @@ class GraphicsSystem:
     INSIDE, LEFT, RIGHT, BOTTOM, TOP = 0, 1, 2, 4, 8
 
     def __init__(self, root):
+        """
+        Parte de interface grafica (parte de Tkinter, botoes inputs e etc, parte visual) foi gerada inteiramente por IAs
+
+        DOC IAgen:
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Adapte a interface atual para comportar os requisitos da entrega X 
+        (Cola os requisitos da entrega X e o codigo atual da interface (Tkinter))
+        """
         self.root = root
         self.root.configure(bg="#2d2d2d")
         self.root.wm_minsize(1020, 700)
@@ -102,6 +112,11 @@ class GraphicsSystem:
         self.style.configure("CoordsLabel.TLabel", 
                              background="#2d2d2d", 
                              foreground="white")
+        self.style.configure("ProjButton.TRadiobutton", 
+                             background="#2d2d2d", 
+                             foreground="white",
+                             indicatorcolor="#1a1a1a",
+                             font=("bold"))
 
     def _create_canvas(self):
         self.canvas_frame = ttk.Frame(self.content_frame)
@@ -137,6 +152,8 @@ class GraphicsSystem:
         
         self._create_view_controls()
         self._create_separator()
+        self._create_projection_controls()
+        self._create_separator()
         self._create_move_controls()
         self._create_separator()
         self._create_rotation_controls()
@@ -156,6 +173,73 @@ class GraphicsSystem:
                 command=lambda: self.zoom_manual(1.1)).grid(row=2, column=0, pady=2)
         ttk.Button(view_frame, text="Resetar", 
                 command=self.reset_view).grid(row=3, column=0, pady=2)
+    
+    def _create_projection_controls(self):
+        projection_frame = ttk.Frame(self.control_frame)
+        projection_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+        projection_label = ttk.Label(projection_frame, text="Tipo de projeção", style="Title.TLabel")
+        projection_label.grid(row=0, column=0, pady=5, columnspan=2)
+
+        self.projection_type = tk.StringVar(value="parallel")
+
+        radio_frame = ttk.Frame(projection_frame)
+        radio_frame.grid(row=1, column=0, columnspan=2, pady=2)
+        ttk.Radiobutton(projection_frame, text="Paralela", variable=self.projection_type, style="ProjButton.TRadiobutton",
+                        value="parallel", command=self.toggle_projection_params).grid(row=1, column=0, pady=2)
+        ttk.Radiobutton(projection_frame, text="Perspectiva", variable=self.projection_type, style="ProjButton.TRadiobutton",
+                        value="perspective", command=self.toggle_projection_params).grid(row=2, column=0, pady=2)
+        
+        # Frame para os parâmetros de perspectiva (inicialmente oculto)
+        self.perspective_frame = ttk.Frame(projection_frame)
+        # Este grid é controlado por toggle_projection_params
+        
+        # Parâmetros da projeção perspectiva
+        ttk.Label(self.perspective_frame, text="Distância (d):", style="CoordsLabel.TLabel").grid(row=0, column=0, pady=2, sticky=tk.W)
+        self.d_entry = ttk.Entry(self.perspective_frame)
+        self.d_entry.insert(0, "200")
+        self.d_entry.grid(row=1, column=0, pady=2, sticky=tk.EW)
+        
+        # Botão Aplicar 'd'
+        ttk.Button(self.perspective_frame, text="Aplicar d",
+                   command=self.redraw).grid(row=2, column=0, pady=5, sticky=tk.EW)
+
+        # Novos botões para Grande Angular e Teleobjetiva
+        ttk.Button(self.perspective_frame, text="Grande Angular (-d)",
+                   command=self.apply_wide_angle_effect).grid(row=3, column=0, pady=2, sticky=tk.EW)
+        ttk.Button(self.perspective_frame, text="Teleobjetiva (+d)",
+                   command=self.apply_telephoto_effect).grid(row=4, column=0, pady=2, sticky=tk.EW)
+        
+        self.toggle_projection_params() # Chama para configurar a visibilidade inicial
+
+    def toggle_projection_params(self):
+        if self.projection_type.get() == "perspective":
+            self.perspective_frame.grid(row=3, column=0, pady=5, sticky=tk.EW)
+        else:
+            self.perspective_frame.grid_forget()
+        self.redraw()
+
+    def apply_wide_angle_effect(self):
+        try:
+            current_d = float(self.d_entry.get())
+            # Reduz 'd' para efeito grande angular. Não deixe ser zero ou negativo.
+            new_d = max(50, current_d * 0.75) # Exemplo: reduz em 25%, mínimo de 50
+            self.d_entry.delete(0, tk.END)
+            self.d_entry.insert(0, str(new_d))
+            self.redraw()
+        except ValueError:
+            messagebox.showerror("Erro", "Valor de 'd' inválido.")
+
+    def apply_telephoto_effect(self):
+        try:
+            current_d = float(self.d_entry.get())
+            # Aumenta 'd' para efeito teleobjetiva.
+            new_d = current_d * 1.25 # Exemplo: aumenta em 25%
+            self.d_entry.delete(0, tk.END)
+            self.d_entry.insert(0, str(new_d))
+            self.redraw()
+        except ValueError:
+            messagebox.showerror("Erro", "Valor de 'd' inválido.")
 
     def _create_move_controls(self):
         move_frame = ttk.Frame(self.control_frame)
@@ -222,23 +306,40 @@ class GraphicsSystem:
 
     def create_add_objects_menu(self):
         add_objects_window = tk.Toplevel(self.root)
-        add_objects_window.title("Adicione objetos")
-
-        # Frame principal para organizar abas e lista
-        main_frame = ttk.Frame(add_objects_window)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        notebook = ttk.Notebook(main_frame)
-        notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        add_objects_window.title("Adicionar Objetos")
+        notebook = ttk.Notebook(add_objects_window)
 
         # Abas para objetos 2D
         for obj_type in [ObjectType.PONTO, ObjectType.LINHA, ObjectType.POLIGONO, 
                         ObjectType.CURVA_BEZIER, ObjectType.B_SPLINE]:
             self.create_object_tab(obj_type, notebook)
 
+        # Nova aba para superfícies Bézier
+        bezier_tab = ttk.Frame(notebook)
+        notebook.add(bezier_tab, text="Retalho Bézier")
+
+        # Frame para os elementos de entrada
+        input_frame = ttk.Frame(bezier_tab)
+        input_frame.pack(pady=10, fill=tk.X)
+
+        ttk.Label(input_frame, text="16 pontos 3D (4 linhas com 4 pontos separados por ';')", style="CoordsLabel.TLabel").pack(pady=5)
+        self.bezier_entry = ttk.Entry(input_frame, width=60)
+        self.bezier_entry.pack(pady=5)
+
+        # Frame para botões (cor e adicionar)
+        button_frame = ttk.Frame(bezier_tab)
+        button_frame.pack(pady=10)
+
+        ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Adicionar Retalho", command=self.add_bezier_patch).pack(side=tk.LEFT, padx=5)
+
         # Abas para objetos 3D
         self.create_3d_objects_tab(ObjectType.PONTO3D, notebook)
         self.create_3d_objects_tab(ObjectType.OBJETO3D, notebook)
+
+        notebook.pack(expand=True, fill='both')
+        add_objects_window.transient(self.root)
+        add_objects_window.grab_set()
 
     def create_object_tab(self, type: ObjectType, notebook):
         tab = ttk.Frame(notebook)
@@ -488,7 +589,7 @@ class GraphicsSystem:
             self.update_transform_list()
 
     def apply_all_transformations(self, selected_name, window):
-        combined_matrix = np.identity(3)
+        combined_matrix = np.identity(4)  # Matriz 4x4 para suportar 3D
         for t in self.temp_transformations:
             matrix = self.generate_matrix(t["type"], t["params"], selected_name)
             combined_matrix = combined_matrix @ matrix
@@ -497,13 +598,35 @@ class GraphicsSystem:
         for obj in self.display_file:
             if obj.name == selected_name:
                 new_coords = []
-                for x, y in obj.coordinates:
-                    point = np.array([x, y, 1])
-                    transformed_point = point @ combined_matrix
-                    new_coords.append((transformed_point[0], transformed_point[1]))
+                
+                # Verifica o tipo de objeto
+                if isinstance(obj, (Ponto3D, Objeto3D, BezierPatch, BezierSurface)):
+                    # Processamento para objetos 3D
+                    for coord in obj.coordinates:
+                        x, y, z = coord[:3]  # Pega os 3 primeiros valores
+                        point = np.array([x, y, z, 1])  # Coordenada homogênea
+                        transformed_point = point @ combined_matrix
+                        new_coords.append((
+                            transformed_point[0], 
+                            transformed_point[1], 
+                            transformed_point[2]
+                        ))
+                        
+                else:
+                    # Processamento para objetos 2D
+                    for coord in obj.coordinates:
+                        x, y = coord[:2]  # Pega apenas x,y
+                        point = np.array([x, y, 0, 1])  # Z=0 para 2D
+                        transformed_point = point @ combined_matrix
+                        new_coords.append((
+                            transformed_point[0], 
+                            transformed_point[1]
+                        ))
+                
                 obj.coordinates = new_coords
                 self.redraw()
                 break
+        
         window.destroy()
 
     def get_params_from_tab(self, tab_name):
@@ -716,16 +839,31 @@ class GraphicsSystem:
             vy = self.viewport["ymax"] - (y_rot - self.window["ymin"]) * scale
             
             return (vx, vy)
-        else:  # Transformação 3D - Projeção Paralela Ortogonal
-            # Navegação 3D - VRP é o primeiro ponto
-            vrp_x = (self.window["xmin"] + self.window["xmax"]) / 2
-            vrp_y = (self.window["ymin"] + self.window["ymax"]) / 2
-            vrp_z = 0  # Assumindo que o VRP está no plano XY
+        else:  # Transformação 3D
+            """
+            Solicitamos a ajuda de IA para aprender a fazer transformações 3D
+
+            DOC IAgen:
+            DeepSeek https://chat.deepseek.com
+
+            Prompt usado:
+            "Como fazer a transformação de um ponto 3D para uma viewport 2D, considerando rotação e perspectiva?"
+            """
+            try:
+                d = float(self.d_entry.get())
+            except ValueError:
+                d = 200
+
+            vrp = np.array([
+                (self.window["xmin"] + self.window["xmax"]) / 2,  # Centro X
+                (self.window["ymin"] + self.window["ymax"]) / 2,  # Centro Y
+                0  # Assumindo VRP no plano XY
+            ])
             
-            # VPN (View Plane Normal) - inicialmente (0, 0, 1)
+            # VPN (View Plane Normal) - apontando para o observador
             vpn = np.array([0, 0, 1])
             
-            # Vetor de view up (VUP) - inicialmente (0, 1, 0)
+            # Vetor View Up (VUP) - orientação "para cima"
             vup = np.array([0, 1, 0])
             
             # Calcula os eixos do sistema de coordenadas da view
@@ -744,9 +882,9 @@ class GraphicsSystem:
             
             # Matriz de translação para mover o VRP para a origem
             T = np.array([
-                [1, 0, 0, -vrp_x],
-                [0, 1, 0, -vrp_y],
-                [0, 0, 1, -vrp_z],
+                [1, 0, 0, -vrp[0]],
+                [0, 1, 0, -vrp[1]],
+                [0, 0, 1, -vrp[2]],
                 [0, 0, 0, 1]
             ])
             
@@ -757,10 +895,19 @@ class GraphicsSystem:
             point = np.array([x, y, z, 1])
             transformed = M @ point
             
-            # Projeção Paralela Ortogonal - simplesmente descarta a coordenada Z
-            x_proj = transformed[0]
-            y_proj = transformed[1]
+            if self.projection_type.get() == "parallel":
+                # Projeção Paralela Ortogonal - simplesmente descarta a coordenada Z
+                x_proj = transformed[0]
+                y_proj = transformed[1]
+            else:
+                # Projeção Perspectiva
+                if transformed[2] + d == 0:
+                    transformed[2] = -d + 0.0001
+                    
+                x_proj = (transformed[0] * d) / (transformed[2] + d)
+                y_proj = (transformed[1] * d) / (transformed[2] + d)
             
+            # Mapeia para a viewport
             window_width = self.window["xmax"] - self.window["xmin"]
             window_height = self.window["ymax"] - self.window["ymin"]
             viewport_width = self.viewport["xmax"] - self.viewport["xmin"]
@@ -947,49 +1094,56 @@ class GraphicsSystem:
         pivot_combobox.pack(pady=5)
 
     def apply_all_transformations(self, selected_name, window):
-        # Encontra o objeto
-        obj = next((o for o in self.display_file if o.name == selected_name), None)
-        if not obj:
-            messagebox.showerror("Erro", "Objeto não encontrado!")
-            window.destroy()
-            return
-        
-        # Combina todas as transformações
-        combined_matrix = np.identity(4 if isinstance(obj, (Ponto3D, Objeto3D)) else 3)
-        
+        """
+        DOC IAgen:
+        Usado para entender como aplicar transformações 3D em objetos 3D
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Como posso adaptar minhas transformacoes atuais para comportar objetos 3D? metodo passado como contexto apply_all_transformations
+        """
+        combined_matrix = np.identity(4)  # Matriz 4x4 para 3D
+
+        # Construir matriz combinada
         for t in self.temp_transformations:
-            if isinstance(obj, (Ponto3D, Objeto3D)):
-                matrix = self.generate_matrix_3d(t["type"], t["params"], selected_name)
-            else:
-                matrix = self.generate_matrix(t["type"], t["params"], selected_name)
+            matrix = self.generate_matrix(t["type"], t["params"], selected_name)
             combined_matrix = combined_matrix @ matrix
-        
-        if isinstance(obj, Ponto3D):
-            x, y, z = obj.coordinates[0]
-            point = np.array([x, y, z, 1])
-            transformed_point = point @ combined_matrix
-            obj.coordinates = [(transformed_point[0], transformed_point[1], transformed_point[2])]
-        
-        elif isinstance(obj, Objeto3D):
-            new_segments = []
-            for segment in obj.segments:
-                new_segment = []
-                for point in segment:
-                    x, y, z = point
-                    transformed_point = np.array([x, y, z, 1]) @ combined_matrix
-                    new_segment.append((transformed_point[0], transformed_point[1], transformed_point[2]))
-                new_segments.append(tuple(new_segment))
-            obj.segments = new_segments
-        
-        else:
-            # Transformação para objetos 2D
-            new_coords = []
-            for x, y in obj.coordinates:
-                point = np.array([x, y, 1])
-                transformed_point = point @ combined_matrix
-                new_coords.append((transformed_point[0], transformed_point[1]))
-            obj.coordinates = new_coords
-        
+
+        # Aplicar transformação ao objeto selecionado
+        for obj in self.display_file:
+            if obj.name == selected_name:
+                new_coords = []
+                
+                # Verificar tipo de objeto
+                if isinstance(obj, (Ponto3D, Objeto3D, BezierPatch, BezierSurface)):
+                    # Processar coordenadas 3D
+                    for coord in obj.coordinates:
+                        # Garantir que temos pelo menos 3 coordenadas (x,y,z)
+                        x = coord[0]
+                        y = coord[1] if len(coord) > 1 else 0
+                        z = coord[2] if len(coord) > 2 else 0
+                        
+                        # Aplicar transformação
+                        point = np.array([x, y, z, 1])
+                        transformed = combined_matrix @ point
+                        new_coords.append((transformed[0], transformed[1], transformed[2]))
+                        
+                else:
+                    # Processar coordenadas 2D
+                    for coord in obj.coordinates:
+                        # Garantir que temos pelo menos 2 coordenadas (x,y)
+                        x = coord[0]
+                        y = coord[1] if len(coord) > 1 else 0
+                        
+                        # Aplicar transformação com Z=0
+                        point = np.array([x, y, 0, 1])
+                        transformed = combined_matrix @ point
+                        new_coords.append((transformed[0], transformed[1]))
+                
+                # Atualizar coordenadas do objeto
+                obj.coordinates = new_coords
+                break
+
         self.redraw()
         window.destroy()
 
@@ -1070,23 +1224,151 @@ class GraphicsSystem:
         except Exception as e:
             messagebox.showerror("Erro", f"Segmentos inválidos: {str(e)}")
 
+    def add_bezier_patch(self):
+        """
+        Adiciona um retalho bicúbico de Bézier a partir da entrada do usuário.
+
+        DOC IAgen:
+        Foi usado IA fazer o parse da entrada do usuario
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Dado essa classe de superficie BezierPatch, como posso fazer o parse de uma entrada do usuario? Colar codigo da classe
+        """
+        input_str = self.bezier_entry.get().strip()
+        try:
+            if not input_str:
+                raise ValueError("Entrada vazia!")
+            
+            # Processa linhas e pontos
+            rows = input_str.split(';')
+            if len(rows) != 4:
+                raise ValueError("Deve ter 4 linhas separadas por ';'")
+            
+            control_points = []
+            for row in rows:
+                clean_row = row.strip().replace(' ', '').replace('),(', '),(')
+                points = eval(f'[{clean_row}]')
+                
+                if len(points) != 4:
+                    raise ValueError(f"Cada linha deve ter 4 pontos. Linha inválida: {row}")
+                
+                # Converte para tuplas 3D
+                for p in points:
+                    if len(p) != 3:
+                        raise ValueError(f"Ponto deve ser 3D (x,y,z). Ponto inválido: {p}")
+                    control_points.append((p[0], p[1], p[2]))
+            
+            if len(control_points) != 16:
+                raise ValueError(f"Total de pontos deve ser 16. Encontrados: {len(control_points)}")
+            
+            # Cria e adiciona o retalho
+            patch = BezierPatch(control_points, self.selected_color)
+            self.display_file.append(patch)
+            self._update_object_list()
+            self.redraw()
+            
+        except Exception as e:
+            messagebox.showerror("Erro", f"Entrada inválida:\n{str(e)}")
+
     def clip_object(self, obj):
-        if isinstance(obj, Point):
+        if isinstance(obj, Point): # Objeto 2D Ponto
             return obj if self.clip_point(obj) else None
-        elif isinstance(obj, Line):
+        elif isinstance(obj, Line): # Objeto 2D Linha
             return self.clip_line(obj)
-        elif isinstance(obj, Polygon):
+        elif isinstance(obj, Polygon): # Objeto 2D Polígono
             return self.clip_polygon(obj)
         elif isinstance(obj, Curve2D):
-            return self.clip_curve(obj)
-        elif isinstance(obj, BSpline):
-            return self.clip_bspline(obj)
-        elif isinstance(obj, Ponto3D):
-            return obj if self.clip_point_3d(obj) else None
-        elif isinstance(obj, Objeto3D):
+            obj.clip({
+                "xmin": self.window["xmin"], "ymin": self.window["ymin"],
+                "xmax": self.window["xmax"], "ymax": self.window["ymax"]
+            })
             return obj
-        return None
+        elif isinstance(obj, BSpline):
+            obj.clip({
+                "xmin": self.window["xmin"], "ymin": self.window["ymin"],
+                "xmax": self.window["xmax"], "ymax": self.window["ymax"]
+            })
+            return obj
 
+        elif isinstance(obj, Ponto3D):
+            x, y, z = obj.coordinates[0] 
+            projected_coords = self.get_projected_2d_coords(x, y, z)
+            if projected_coords:
+                # Cria um objeto Ponto 2D temporário para clipping
+                # As coordenadas de 'projected_coords' já estão no "espaço da window"
+                temp_point_2d = Point([projected_coords], color=obj.color)
+                if self.clip_point(temp_point_2d): # clip_point usa self.window
+                    # Retorna um novo objeto Point 2D com as coordenadas projetadas
+                    # O nome do objeto original é perdido aqui, mas é para desenho.
+                    return Point([projected_coords], color=obj.color) 
+            return None
+
+        elif isinstance(obj, Objeto3D):
+            clipped_2d_lines = []
+            for p1_3d, p2_3d in obj.segments:
+                # Projeta os dois pontos do segmento 3D para 2D
+                p1_2d_proj = self.get_projected_2d_coords(p1_3d[0], p1_3d[1], p1_3d[2])
+                p2_2d_proj = self.get_projected_2d_coords(p2_3d[0], p2_3d[1], p2_3d[2])
+
+                if p1_2d_proj and p2_2d_proj: # Se ambos os pontos puderam ser projetados
+                    # Cria um objeto Linha 2D temporário com as coordenadas projetadas
+                    line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
+                    # Aplica o clipping 2D (Cohen-Sutherland ou Liang-Barsky)
+                    clipped_line_segment = self.clip_line(line_to_clip) 
+                    if clipped_line_segment:
+                        clipped_2d_lines.append(clipped_line_segment)
+            return clipped_2d_lines # Retorna uma lista de objetos Linha 2D clipados
+        elif isinstance(obj, BezierPatch):
+            """
+            Faz o clipping de um BezierPatch, retornando uma lista de linhas clipadas.
+
+            DOC IAgen:
+            Foi usado IA parfa entender como clipar um objeto 3D em 2D e como podemos fazer essa conversão
+            DeepSeek https://chat.deepseek.com
+
+            Prompt usado:
+            Como funciona o clipping de um objeto 3D para 2D em computação gráfica? Explique como converter e recortar objetos 3D fora da visão do canvas.
+            """
+            # Similar ao Objeto3D, mas iterando sobre as linhas da malha da superfície
+            clipped_patch_lines = []
+            resolution = obj.resolution
+            # obj.surface_points são os pontos 3D da superfície já calculados
+            
+            # Projetar todos os pontos da superfície primeiro
+            projected_surface_points = []
+            for pt3d in obj.surface_points:
+                proj_pt = self.get_projected_2d_coords(pt3d[0], pt3d[1], pt3d[2])
+                projected_surface_points.append(proj_pt)
+
+            # Linhas na direção U
+            for i in range(resolution):
+                for j in range(resolution - 1):
+                    idx1 = i * resolution + j
+                    idx2 = i * resolution + j + 1
+                    p1_2d_proj = projected_surface_points[idx1]
+                    p2_2d_proj = projected_surface_points[idx2]
+                    if p1_2d_proj and p2_2d_proj:
+                        line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
+                        clipped_segment = self.clip_line(line_to_clip)
+                        if clipped_segment:
+                            clipped_patch_lines.append(clipped_segment)
+            # Linhas na direção V
+            for j in range(resolution):
+                for i in range(resolution - 1):
+                    idx1 = i * resolution + j
+                    idx2 = (i + 1) * resolution + j
+                    p1_2d_proj = projected_surface_points[idx1]
+                    p2_2d_proj = projected_surface_points[idx2]
+                    if p1_2d_proj and p2_2d_proj:
+                        line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
+                        clipped_segment = self.clip_line(line_to_clip)
+                        if clipped_segment:
+                            clipped_patch_lines.append(clipped_segment)
+            return clipped_patch_lines
+            
+        return None 
+    
     def clip_bspline(self, bspline):
         bspline.clip({
             "xmin": self.window["xmin"],
@@ -1145,11 +1427,26 @@ class GraphicsSystem:
 
     def redraw(self):
         self.canvas.delete("all")
-        for obj in self.display_file:
-            clipped = self.clip_object(obj)
-            if clipped:
-                clipped.draw(self.canvas, self.viewport_transform)
         self._draw_viewport()
+
+        for obj_original in self.display_file:
+            # clip_object agora lida com a projeção 3D para 2D e o clipping 2D subsequente.
+            # Para objetos 3D, ele retorna uma lista de primitivas 2D (Lines) ou um Point 2D.
+            # Para objetos 2D, ele retorna o objeto 2D clipado ou None.
+            drawable_primitives = self.clip_object(obj_original)
+
+            if drawable_primitives:
+                if isinstance(drawable_primitives, list): 
+                    # Caso de Objeto3D ou BezierPatch, que retornam lista de Linhas 2D
+                    for primitive_2d in drawable_primitives:
+                        # primitive_2d é um objeto Line (ou Point) com coordenadas já no "espaço da window"
+                        # viewport_transform (parte 2D) fará a conversão de window para viewport
+                        primitive_2d.draw(self.canvas, self.viewport_transform)
+                else: 
+                    # Caso de Point, Line, Polygon, Curve2D, BSpline (2D originais ou Ponto3D projetado)
+                    # As coordenadas já estão no "espaço da window" (para Ponto3D projetado) ou são originais (para 2D)
+                    # viewport_transform (parte 2D) fará a conversão de window para viewport
+                    drawable_primitives.draw(self.canvas, self.viewport_transform)
 
     def parse_input(self, coords_entry):
         try:
@@ -1240,81 +1537,231 @@ class GraphicsSystem:
             code |= self.LEFT
         elif x > self.window["xmax"]:
             code |= self.RIGHT
-
         if y < self.window["ymin"]:
             code |= self.BOTTOM
         elif y > self.window["ymax"]:
             code |= self.TOP
         return code
 
+    def world_to_window_local(self, x, y):
+        """ Converte coordenadas mundiais para o sistema local da window (considera rotação)"""
+        cx = (self.window["xmin"] + self.window["xmax"]) / 2
+        cy = (self.window["ymin"] + self.window["ymax"]) / 2
+        theta = -self.window["rotation"]
+        
+        # Translada e rotaciona
+        x_rot = (x - cx) * math.cos(theta) - (y - cy) * math.sin(theta) + cx
+        y_rot = (x - cx) * math.sin(theta) + (y - cy) * math.cos(theta) + cy
+        
+        return x_rot, y_rot
+
+    def window_local_to_world(self, x_local, y_local):
+        """Converte coordenadas locais da window de volta para o sistema mundial"""
+        cx = (self.window["xmin"] + self.window["xmax"]) / 2
+        cy = (self.window["ymin"] + self.window["ymax"]) / 2
+        theta = self.window["rotation"]
+        
+        # Rotaciona e translada
+        x_world = (x_local - cx) * math.cos(theta) - (y_local - cy) * math.sin(theta) + cx
+        y_world = (x_local - cx) * math.sin(theta) + (y_local - cy) * math.cos(theta) + cy
+        
+        return x_world, y_world
+
     def clip_line_cohen_sutherland(self, line):
         (x1, y1), (x2, y2) = line.coordinates
 
-        code_start = self.compute_out_code(x1, y1)
-        code_end = self.compute_out_code(x2, y2)
+        # Converte para coordenadas locais da window
+        x1w, y1w = self.world_to_window_local(x1, y1)
+        x2w, y2w = self.world_to_window_local(x2, y2)
+
+        code_start = self.compute_out_code(x1w, y1w)
+        code_end = self.compute_out_code(x2w, y2w)
         
         while True:
-            # Caso trivial: completamente dentro
             if not (code_start | code_end):
-                return Line([(x1, y1), (x2, y2)])
+                # Converte de volta para coordenadas mundiais
+                x1f, y1f = self.window_local_to_world(x1w, y1w)
+                x2f, y2f = self.window_local_to_world(x2w, y2w)
+                return Line([(x1f, y1f), (x2f, y2f)], color=line.color)
             
-            # Caso trivial: completamente fora
             elif code_start & code_end:
                 return None
             
-            # Caso parcial: calcula interseção
             else:
                 code_out = code_start if code_start else code_end
+                
                 if code_out & self.TOP:
-                    x = (x1 + (x2 - x1) * (self.window["ymax"] - y1) / (y2 - y1)) if y2 != y1 else x1
+                    x = x1w + (x2w - x1w) * (self.window["ymax"] - y1w) / (y2w - y1w) if y2w != y1w else x1w
                     y = self.window["ymax"]
                 elif code_out & self.BOTTOM:
-                    x = (x1 + (x2 - x1) * (self.window["ymin"] - y1) / (y2 - y1)) if y2 != y1 else x1
+                    x = x1w + (x2w - x1w) * (self.window["ymin"] - y1w) / (y2w - y1w) if y2w != y1w else x1w
                     y = self.window["ymin"]
                 elif code_out & self.RIGHT:
-                    y = (y1 + (y2 - y1) * (self.window["xmax"] - x1) / (x2 - x1)) if x2 != x1 else y1
+                    y = y1w + (y2w - y1w) * (self.window["xmax"] - x1w) / (x2w - x1w) if x2w != x1w else y1w
                     x = self.window["xmax"]
                 elif code_out & self.LEFT:
-                    y = (y1 + (y2 - y1) * (self.window["xmin"] - x1) / (x2 - x1)) if x2 != x1 else y1
+                    y = y1w + (y2w - y1w) * (self.window["xmin"] - x1w) / (x2w - x1w) if x2w != x1w else y1w
                     x = self.window["xmin"]
-                
+
                 if code_out == code_start:
-                    x1, y1 = x, y
-                    code_start = self.compute_out_code(x1, y1)
+                    x1w, y1w = x, y
+                    code_start = self.compute_out_code(x1w, y1w)
                 else:
-                    x2, y2 = x, y
-                    code_end = self.compute_out_code(x2, y2)
-    
+                    x2w, y2w = x, y
+                    code_end = self.compute_out_code(x2w, y2w)
+
     def clip_line_liang_barsky(self, line):
         (x1, y1), (x2, y2) = line.coordinates
 
-        dx = x2 - x1
-        dy = y2 - y1
+        # Converte para coordenadas locais da window
+        x1w, y1w = self.world_to_window_local(x1, y1)
+        x2w, y2w = self.world_to_window_local(x2, y2)
+
+        dx = x2w - x1w
+        dy = y2w - y1w
         p = [-dx, dx, -dy, dy]
-        q = [x1 - self.window["xmin"],
-            self.window["xmax"] - x1,
-            y1 - self.window["ymin"],
-            self.window["ymax"] - y1]
+        q = [
+            x1w - self.window["xmin"],
+            self.window["xmax"] - x1w,
+            y1w - self.window["ymin"],
+            self.window["ymax"] - y1w
+        ]
         
         u1, u2 = 0.0, 1.0
-        for pi, qi in zip(p, q):
-            if pi == 0:
-                if qi < 0:
+        for i in range(4):
+            if p[i] == 0:
+                if q[i] < 0:
                     return None
             else:
-                u = qi / pi
-                if pi < 0:
+                u = q[i]/p[i]
+                if p[i] < 0:
                     u1 = max(u1, u)
                 else:
                     u2 = min(u2, u)
+
         if u1 > u2:
             return None
 
-        x1 = x1 + u1 * dx
-        y1 = y1 + u1 * dy
-        x2 = x1 + u2 * dx
-        y2 = y1 + u2 * dy
-        return Line([(x1, y1), (x2, y2)])
+        # Calcula pontos clipados em coordenadas locais
+        x1c = x1w + u1 * dx
+        y1c = y1w + u1 * dy
+        x2c = x1w + u2 * dx
+        y2c = y1w + u2 * dy
+
+        # Converte de volta para coordenadas mundiais
+        x1f, y1f = self.window_local_to_world(x1c, y1c)
+        x2f, y2f = self.window_local_to_world(x2c, y2c)
+
+        return Line([(x1f, y1f), (x2f, y2f)], color=line.color)
+    
+    def get_projected_2d_coords(self, x_world, y_world, z_world):
+        """
+        Transforma um ponto 3D do mundo para coordenadas 2D no plano de projeção,
+        compatíveis com self.window para clipping 2D.
+        Retorna (x_proj, y_proj) ou None se a projeção não for possível.
+
+        DOC IAgen:
+        Foi usado IA entender como representrar um objeto com cordenadas 3D em 2D no plano de projecao em Python
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Como representrar um objeto com cordenadas 3D em 2D no plano de projecao em Python, demos o contexto do codigo atual antes da implementacao
+        """
+        try:
+            d = float(self.d_entry.get())
+            if d <= 1e-6: # d deve ser positivo e não muito pequeno
+                # messagebox.showwarning("Aviso", "Distância de projeção 'd' muito pequena ou inválida. Usando valor padrão.")
+                d = 200 
+        except ValueError:
+            d = 200
+
+        # VRP (View Reference Point) - Centro da window, no plano z=0 do mundo
+        vrp = np.array([
+            (self.window["xmin"] + self.window["xmax"]) / 2,
+            (self.window["ymin"] + self.window["ymax"]) / 2,
+            0  # Assumindo VRP no plano XY do mundo para simplificar a câmera canônica inicial
+        ])
+        
+        # VPN (View Plane Normal) - Olhando ao longo do eixo Z do mundo
+        vpn = np.array([0, 0, 1])
+        
+        # VUP (View Up Vector) - Eixo Y do mundo como "para cima"
+        vup = np.array([0, 1, 0])
+        
+        # Normalizar VPN
+        n = vpn / np.linalg.norm(vpn)
+        # Calcular u (eixo x da view)
+        u = np.cross(vup, n)
+        if np.linalg.norm(u) < 1e-6: # vup e n são colineares
+            # Tentar um vup alternativo se o padrão for problemático (ex: olhando reto para cima/baixo)
+            if abs(n[1]) > 0.99: # n é próximo de (0, +/-1, 0)
+                u = np.cross(np.array([0,0,1]), n) # Usar Z global como up temporário
+            else: 
+                u = np.cross(np.array([1,0,0]), n) # Usar X global como up temporário
+
+        u = u / np.linalg.norm(u)
+        # Calcular v (eixo y da view)
+        v = np.cross(n, u)
+
+        # Matriz de Translação para levar VRP à origem
+        T_vrp = np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [-vrp[0], -vrp[1], -vrp[2], 1]
+        ])
+
+        # Matriz de Rotação para alinhar eixos do mundo com eixos da view
+        R_view = np.array([
+            [u[0], v[0], n[0], 0], # Colunas são os eixos da view no sistema do mundo
+            [u[1], v[1], n[1], 0],
+            [u[2], v[2], n[2], 0],
+            [0,    0,    0,    1]
+        ])
+  
+        R_align = np.array([
+            [u[0], v[0], n[0], 0],
+            [u[1], v[1], n[1], 0],
+            [u[2], v[2], n[2], 0],
+            [0,    0,    0,    1]
+        ])
+
+        R_matrix_original_style = np.array([
+            [u[0], u[1], u[2], 0],
+            [v[0], v[1], v[2], 0],
+            [n[0], n[1], n[2], 0],
+            [0,    0,    0,    1]
+        ])
+        T_matrix_original_style = np.array([
+            [1, 0, 0, -vrp[0]],
+            [0, 1, 0, -vrp[1]],
+            [0, 0, 1, -vrp[2]],
+            [0, 0, 0, 1]
+        ])
+        M_view_transform_col = R_matrix_original_style @ T_matrix_original_style # Para P_view_col = M @ P_world_col
+
+        point_world_col = np.array([x_world, y_world, z_world, 1]).reshape(4,1)
+        transformed_view_col = M_view_transform_col @ point_world_col
+        
+        x_v, y_v, z_v = transformed_view_col[0,0], transformed_view_col[1,0], transformed_view_col[2,0]
+
+        if self.projection_type.get() == "parallel":
+            x_proj = x_v
+            y_proj = y_v
+        elif self.projection_type.get() == "perspective":
+            # COP está em (0,0,-d) no sistema da view, plano de projeção em z_view=0
+            denominator = z_v + d 
+            if abs(denominator) < 1e-6: # Evita divisão por zero
+                return None
+            if denominator <= 0: # Ponto está no COP ou atrás dele (inválido para esta projeção)
+                 return None
+
+            x_proj = (x_v * d) / denominator
+            y_proj = (y_v * d) / denominator
+        else:
+            return None # Tipo de projeção desconhecido
+            
+        return x_proj, y_proj
 
 if __name__ == "__main__":
     root = tk.Tk()
