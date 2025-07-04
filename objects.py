@@ -12,6 +12,8 @@ class ObjectType(Enum):
     B_SPLINE = "B-Spline"
     PONTO3D = "Ponto3D"
     OBJETO3D = "Objeto3D"
+    SUPERFICIE_BEZIER = "Superfície Bézier"
+    SUPERFICIE_BSPLINE = "Superfície B-Spline"
 
 class GraphicObject(ABC):
     _counter = 0  # Contador estático compartilhado
@@ -537,3 +539,166 @@ class BezierSurface(GraphicObject):
         """Desenha todos os retalhos da superfície."""
         for patch in self.patches:
             patch.draw(canvas, transform)
+
+
+class BSplineSurface(GraphicObject):
+    """
+    Representa uma superfície B-Spline bicúbica renderizada com o método das
+    Diferenças Adiante (Forward Differences).
+    A classe recebe uma matriz de controle de M x N pontos (M, N >= 4),
+    a subdivide em patches de 4x4 e calcula os pontos da malha para cada um.
+    """
+    """
+        DOC IAgen:
+        Foi usado IA para estruturar qual a melhor maneira de representar uma B-Spline bicúbica renderizada com o método das
+        Diferenças Adiante (Forward Differences) e exemplos de entrada
+        DeepSeek https://chat.deepseek.com
+
+        Prompt usado:
+        Qual a melhor maneira de representar uma B-Spline bicúbica renderizada com o método das
+        Diferenças Adiante (Forward Differences) em Python? dado aq estrutura atual do meu codigo (Outros objetos):
+        copiando codigo base e colando no prompt
+    """
+    prefix = "BSS"
+
+    def __init__(self, control_matrix, color="#00aaff", resolution=15):
+        """
+        Inicializa a superfície B-Spline.
+        Args:
+            control_matrix (list[list[tuple]]): Matriz de pontos de controle (M x N).
+            color (str): Cor do objeto.
+            resolution (int): Número de passos para o algoritmo de diferenças adiante.
+        """
+        self.control_matrix = np.array(control_matrix, dtype=float)
+        
+        rows, cols, _ = self.control_matrix.shape
+        if rows < 4 or cols < 4:
+            raise ValueError("A matriz de controle deve ter dimensão mínima de 4x4.")
+
+        # A lista 'coordinates' da classe pai guardará todos os pontos de controle.
+        all_points = self.control_matrix.reshape(-1, 3).tolist()
+        super().__init__(all_points, color)
+
+        self.resolution = resolution
+        # 'surface_patches' conterá uma lista de malhas de pontos, uma para cada patch 4x4.
+        self.surface_patches = self._compute_all_patches()
+
+    @property
+    def type(self):
+        return "Superfície B-Spline"
+
+    # Em objects.py, DENTRO da classe BSplineSurface, SUBSTITUA o método antigo por este:
+
+    def _compute_patch_points_fd(self, Gx, Gy, Gz):
+        # Matriz base da B-Spline
+        M_bs = (1/6) * np.array([
+            [-1,  3, -3, 1],
+            [ 3, -6,  3, 0],
+            [-3,  0,  3, 0],
+            [ 1,  4,  1, 0]
+        ])
+
+        # Coeficientes da geometria para cada coordenada
+        Cx = M_bs @ Gx @ M_bs.T
+        Cy = M_bs @ Gy @ M_bs.T
+        Cz = M_bs @ Gz @ M_bs.T
+
+        n = self.resolution
+        delta = 1.0 / n
+
+        # Matriz de avaliação das Diferenças Adiante
+        E = np.array([
+            [0, 0, 0, 1],
+            [delta**3, delta**2, delta, 0],
+            [6*delta**3, 2*delta**2, 0, 0],
+            [6*delta**3, 0, 0, 0]
+        ])
+
+        # Matrizes de Diferenças (estado do algoritmo)
+        DD_x = E @ Cx @ E.T
+        DD_y = E @ Cy @ E.T
+        DD_z = E @ Cz @ E.T
+
+        patch_points = np.zeros((n + 1, n + 1, 3))
+
+        # Loop principal na direção U
+        for i in range(n + 1):
+            # Copia o estado atual para gerar a curva na direção V
+            d_x_v = DD_x.copy()
+            d_y_v = DD_y.copy()
+            d_z_v = DD_z.copy()
+
+            # Loop aninhado na direção V
+            for j in range(n + 1):
+                # O ponto atual é o elemento (0,0) da matriz de estado da curva V
+                patch_points[i, j] = [d_x_v[0, 0], d_y_v[0, 0], d_z_v[0, 0]]
+                
+                # Atualiza o estado da curva V (atualização das colunas)
+                d_x_v[:, 0] += d_x_v[:, 1]
+                d_x_v[:, 1] += d_x_v[:, 2]
+                d_x_v[:, 2] += d_x_v[:, 3]
+
+                d_y_v[:, 0] += d_y_v[:, 1]
+                d_y_v[:, 1] += d_y_v[:, 2]
+                d_y_v[:, 2] += d_y_v[:, 3]
+
+                d_z_v[:, 0] += d_z_v[:, 1]
+                d_z_v[:, 1] += d_z_v[:, 2]
+                d_z_v[:, 2] += d_z_v[:, 3]
+            
+            # Atualiza o estado principal para a próxima curva U (atualização das linhas)
+            DD_x[0, :] += DD_x[1, :]
+            DD_x[1, :] += DD_x[2, :]
+            DD_x[2, :] += DD_x[3, :]
+
+            DD_y[0, :] += DD_y[1, :]
+            DD_y[1, :] += DD_y[2, :]
+            DD_y[2, :] += DD_y[3, :]
+
+            DD_z[0, :] += DD_z[1, :]
+            DD_z[1, :] += DD_z[2, :]
+            DD_z[2, :] += DD_z[3, :]
+
+        return patch_points
+
+    def _compute_all_patches(self):
+        """
+        Itera sobre a matriz de controle, extrai todos os patches 4x4
+        e calcula os pontos de superfície para cada um.
+        """
+        all_patch_points = []
+        rows, cols, _ = self.control_matrix.shape
+
+        # Itera para criar (rows-3) x (cols-3) patches
+        for i in range(rows - 3):
+            for j in range(cols - 3):
+                # Extrai a matriz de geometria 4x4 (G)
+                G = self.control_matrix[i:i+4, j:j+4]
+                Gx, Gy, Gz = G[:,:,0], G[:,:,1], G[:,:,2]
+
+                patch_points = self._compute_patch_points_fd(Gx, Gy, Gz)
+                all_patch_points.append(patch_points)
+                
+        return all_patch_points
+
+    def draw(self, canvas, transform):
+        """
+        Desenha a malha de cada patch da superfície.
+        """
+        # Itera sobre cada malha de pontos pré-calculada
+        for patch_grid in self.surface_patches:
+            res_u, res_v, _ = patch_grid.shape
+
+            # Projeta todos os pontos 3D da malha para a viewport 2D
+            projected_grid = np.array([transform(p[0], p[1], p[2]) for p in patch_grid.reshape(-1, 3)])
+            projected_grid = projected_grid.reshape(res_u, res_v, 2)
+
+            # Desenha as linhas da malha na direção U
+            for i in range(res_u):
+                line_coords = projected_grid[i, :, :].flatten().tolist()
+                canvas.create_line(line_coords, fill=self.color, width=1)
+
+            # Desenha as linhas da malha na direção V
+            for j in range(res_v):
+                line_coords = projected_grid[:, j, :].flatten().tolist()
+                canvas.create_line(line_coords, fill=self.color, width=1)

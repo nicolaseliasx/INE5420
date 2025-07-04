@@ -1,0 +1,10 @@
+# Sistema Gráfico - Arquivo OBJ
+# Exemplo de Superfície B-Spline (Cúpula 4x4)
+o CupulaSimples
+
+bspm (-50,0,-50),(-50,50,0),(-50,50,50),(-50,0,100);(0,50,-50),(0,100,0),(0,100,50),(0,50,100);(50,50,-50),(50,100,0),(50,100,50),(50,50,100);(100,0,-50),(100,50,0),(100,50,50),(100,0,100)
+
+# Definição de Cor
+c BSS1 #ff8c00
+
+# Fim do arquivo

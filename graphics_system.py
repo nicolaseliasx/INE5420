@@ -4,7 +4,7 @@ from tkinter import filedialog
 import numpy as np
 import math
 from tkinter.colorchooser import askcolor
-from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType, BezierPatch, BezierSurface
+from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, Ponto3D, Objeto3D, ObjectType, BezierPatch, BezierSurface, BSplineSurface
 from descritor_obj import DescritorOBJ
 
 
@@ -307,37 +307,54 @@ class GraphicsSystem:
     def create_add_objects_menu(self):
         add_objects_window = tk.Toplevel(self.root)
         add_objects_window.title("Adicionar Objetos")
+        add_objects_window.configure(bg="#2d2d2d")
         notebook = ttk.Notebook(add_objects_window)
 
         # Abas para objetos 2D
-        for obj_type in [ObjectType.PONTO, ObjectType.LINHA, ObjectType.POLIGONO, 
+        for obj_type in [ObjectType.PONTO, ObjectType.LINHA, ObjectType.POLIGONO,
                         ObjectType.CURVA_BEZIER, ObjectType.B_SPLINE]:
             self.create_object_tab(obj_type, notebook)
 
-        # Nova aba para superfícies Bézier
         bezier_tab = ttk.Frame(notebook)
         notebook.add(bezier_tab, text="Retalho Bézier")
+        
+        bezier_input_frame = ttk.Frame(bezier_tab)
+        bezier_input_frame.pack(pady=10, fill=tk.X, padx=10)
+        ttk.Label(bezier_input_frame, text="16 pontos 3D (4 linhas de 4 pontos, separadas por ';')", style="CoordsLabel.TLabel").pack(pady=5)
+        self.bezier_entry = ttk.Entry(bezier_input_frame, width=60)
+        self.bezier_entry.pack(pady=5, fill=tk.X, expand=True)
+        
+        bezier_button_frame = ttk.Frame(bezier_tab)
+        bezier_button_frame.pack(pady=10)
+        ttk.Button(bezier_button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=5)
+        ttk.Button(bezier_button_frame, text="Adicionar Retalho", command=self.add_bezier_patch).pack(side=tk.LEFT, padx=5)
+
+        bspline_surface_tab = ttk.Frame(notebook)
+        notebook.add(bspline_surface_tab, text="Superfície B-Spline")
 
         # Frame para os elementos de entrada
-        input_frame = ttk.Frame(bezier_tab)
-        input_frame.pack(pady=10, fill=tk.X)
+        bspline_input_frame = ttk.Frame(bspline_surface_tab)
+        bspline_input_frame.pack(pady=10, fill=tk.BOTH, expand=True, padx=10)
 
-        ttk.Label(input_frame, text="16 pontos 3D (4 linhas com 4 pontos separados por ';')", style="CoordsLabel.TLabel").pack(pady=5)
-        self.bezier_entry = ttk.Entry(input_frame, width=60)
-        self.bezier_entry.pack(pady=5)
+        ttk.Label(bspline_input_frame,
+                text="Matriz de Pontos de Controle (M x N, onde M,N >= 4):\n(x,y,z),...;(x,y,z),...",
+                style="CoordsLabel.TLabel", justify=tk.LEFT).pack(pady=5, anchor='w')
 
-        # Frame para botões (cor e adicionar)
-        button_frame = ttk.Frame(bezier_tab)
-        button_frame.pack(pady=10)
+        # Usamos um widget Text para entrada de múltiplas linhas
+        self.bspline_surface_entry = tk.Text(bspline_input_frame, height=10, width=70, bg="#3d3d3d", fg="white", insertbackground="white", relief=tk.FLAT, borderwidth=2)
+        self.bspline_surface_entry.pack(pady=5, fill=tk.BOTH, expand=True)
 
-        ttk.Button(button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Adicionar Retalho", command=self.add_bezier_patch).pack(side=tk.LEFT, padx=5)
+        # Frame para botões
+        bspline_button_frame = ttk.Frame(bspline_surface_tab)
+        bspline_button_frame.pack(pady=10)
 
-        # Abas para objetos 3D
+        ttk.Button(bspline_button_frame, text="Escolher Cor", command=self.choose_color).pack(side=tk.LEFT, padx=5)
+        ttk.Button(bspline_button_frame, text="Adicionar Superfície", command=self.add_bspline_surface).pack(side=tk.LEFT, padx=5)
+
         self.create_3d_objects_tab(ObjectType.PONTO3D, notebook)
         self.create_3d_objects_tab(ObjectType.OBJETO3D, notebook)
 
-        notebook.pack(expand=True, fill='both')
+        notebook.pack(expand=True, fill='both', padx=10, pady=10)
         add_objects_window.transient(self.root)
         add_objects_window.grab_set()
 
@@ -1224,6 +1241,54 @@ class GraphicsSystem:
         except Exception as e:
             messagebox.showerror("Erro", f"Segmentos inválidos: {str(e)}")
 
+    def add_bspline_surface(self):
+        """
+        Lê a matriz de pontos de controle do widget Text, valida, e cria
+        um objeto BSplineSurface.
+        """
+        input_str = self.bspline_surface_entry.get("1.0", tk.END).strip()
+        if not input_str:
+            messagebox.showerror("Erro de Entrada", "A matriz de controle não pode estar vazia.")
+            return
+
+        try:
+            # Parse da matriz de entrada, removendo espaços e quebras de linha extras
+            input_str_cleaned = input_str.replace('\n', '').replace(' ', '')
+            rows_str = input_str_cleaned.split(';')
+            
+            control_matrix = []
+            for row_str in rows_str:
+                row_str = row_str.strip()
+                if not row_str:
+                    continue
+                
+                # A função eval é usada para interpretar as tuplas de pontos
+                # Ex: "(1,2,3),(4,5,6)" -> [(1,2,3), (4,5,6)]
+                points_in_row = list(eval(f"[{row_str}]"))
+                control_matrix.append(points_in_row)
+
+            if not control_matrix or not control_matrix[0]:
+                raise ValueError("Formato de matriz inválido.")
+
+            # Validação das dimensões
+            num_rows = len(control_matrix)
+            num_cols = len(control_matrix[0])
+            if not all(len(row) == num_cols for row in control_matrix):
+                raise ValueError("Todas as linhas da matriz devem ter o mesmo número de pontos.")
+
+            if not (4 <= num_rows <= 20 and 4 <= num_cols <= 20):
+                raise ValueError("As dimensões da matriz devem estar entre 4x4 e 20x20.")
+
+            # Criação e adição do objeto
+            surface = BSplineSurface(control_matrix, self.selected_color)
+            self.display_file.append(surface)
+            self._update_object_list()
+            self.redraw()
+            messagebox.showinfo("Sucesso", f"Superfície B-Spline '{surface.name}' adicionada.")
+
+        except Exception as e:
+            messagebox.showerror("Erro de Entrada", f"Falha ao processar a matriz de controle:\n{e}")
+
     def add_bezier_patch(self):
         """
         Adiciona um retalho bicúbico de Bézier a partir da entrada do usuário.
@@ -1319,54 +1384,58 @@ class GraphicsSystem:
                     if clipped_line_segment:
                         clipped_2d_lines.append(clipped_line_segment)
             return clipped_2d_lines # Retorna uma lista de objetos Linha 2D clipados
-        elif isinstance(obj, BezierPatch):
-            """
-            Faz o clipping de um BezierPatch, retornando uma lista de linhas clipadas.
-
-            DOC IAgen:
-            Foi usado IA parfa entender como clipar um objeto 3D em 2D e como podemos fazer essa conversão
-            DeepSeek https://chat.deepseek.com
-
-            Prompt usado:
-            Como funciona o clipping de um objeto 3D para 2D em computação gráfica? Explique como converter e recortar objetos 3D fora da visão do canvas.
-            """
-            # Similar ao Objeto3D, mas iterando sobre as linhas da malha da superfície
-            clipped_patch_lines = []
-            resolution = obj.resolution
-            # obj.surface_points são os pontos 3D da superfície já calculados
+        
+        elif isinstance(obj, (BezierPatch, BSplineSurface)):
+            clipped_surface_lines = []
             
-            # Projetar todos os pontos da superfície primeiro
-            projected_surface_points = []
-            for pt3d in obj.surface_points:
-                proj_pt = self.get_projected_2d_coords(pt3d[0], pt3d[1], pt3d[2])
-                projected_surface_points.append(proj_pt)
+            # Determina a origem dos pontos da malha (pode ser de um BezierPatch ou BSplineSurface)
+            patches = []
+            if isinstance(obj, BezierPatch):
+                patches.append(obj.surface_points) # BezierPatch tem uma malha
+            elif isinstance(obj, BezierSurface): # Se for uma coleção de patches
+                for patch in obj.patches:
+                    patches.append(patch.surface_points)
+            else: # BSplineSurface
+                patches = obj.surface_patches # BSplineSurface tem uma lista de malhas
 
-            # Linhas na direção U
-            for i in range(resolution):
-                for j in range(resolution - 1):
-                    idx1 = i * resolution + j
-                    idx2 = i * resolution + j + 1
-                    p1_2d_proj = projected_surface_points[idx1]
-                    p2_2d_proj = projected_surface_points[idx2]
-                    if p1_2d_proj and p2_2d_proj:
-                        line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
-                        clipped_segment = self.clip_line(line_to_clip)
-                        if clipped_segment:
-                            clipped_patch_lines.append(clipped_segment)
-            # Linhas na direção V
-            for j in range(resolution):
-                for i in range(resolution - 1):
-                    idx1 = i * resolution + j
-                    idx2 = (i + 1) * resolution + j
-                    p1_2d_proj = projected_surface_points[idx1]
-                    p2_2d_proj = projected_surface_points[idx2]
-                    if p1_2d_proj and p2_2d_proj:
-                        line_to_clip = Line([p1_2d_proj, p2_2d_proj], color=obj.color)
-                        clipped_segment = self.clip_line(line_to_clip)
-                        if clipped_segment:
-                            clipped_patch_lines.append(clipped_segment)
-            return clipped_patch_lines
-            
+            # Processa cada malha de patch
+            for patch_3d_points in patches:
+                # Converte a lista de pontos para um array numpy para fácil indexação
+                patch_grid = np.array(patch_3d_points)
+                res_u, res_v, _ = patch_grid.shape
+                
+                # 1. Projeta todos os pontos 3D da malha para 2D primeiro
+                projected_grid = np.full((res_u, res_v, 2), np.nan)
+                for i in range(res_u):
+                    for j in range(res_v):
+                        pt3d = patch_grid[i, j]
+                        proj_pt = self.get_projected_2d_coords(pt3d[0], pt3d[1], pt3d[2])
+                        if proj_pt:
+                            projected_grid[i, j] = proj_pt
+
+                # 2. Cria e clipa os segmentos de linha da malha projetada
+                # Linhas na direção U (horizontais na malha)
+                for i in range(res_u):
+                    for j in range(res_v - 1):
+                        p1 = projected_grid[i, j]
+                        p2 = projected_grid[i, j + 1]
+                        if not np.isnan(p1).any() and not np.isnan(p2).any():
+                            clipped_segment = self.clip_line(Line([tuple(p1), tuple(p2)], color=obj.color))
+                            if clipped_segment:
+                                clipped_surface_lines.append(clipped_segment)
+
+                # Linhas na direção V (verticais na malha)
+                for j in range(res_v):
+                    for i in range(res_u - 1):
+                        p1 = projected_grid[i, j]
+                        p2 = projected_grid[i + 1, j]
+                        if not np.isnan(p1).any() and not np.isnan(p2).any():
+                            clipped_segment = self.clip_line(Line([tuple(p1), tuple(p2)], color=obj.color))
+                            if clipped_segment:
+                                clipped_surface_lines.append(clipped_segment)
+
+            return clipped_surface_lines
+        
         return None 
     
     def clip_bspline(self, bspline):

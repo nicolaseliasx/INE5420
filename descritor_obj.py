@@ -1,4 +1,4 @@
-from objects import GraphicObject, Point, Line, Polygon, Curve2D, BSpline, BezierPatch, Objeto3D, Ponto3D, BezierSurface
+from objects import BSplineSurface, GraphicObject, Point, Line, Polygon, Curve2D, BSpline, BezierPatch, Objeto3D, Ponto3D, BezierSurface
 from tkinter import messagebox
 
 class DescritorOBJ:
@@ -109,6 +109,27 @@ class DescritorOBJ:
                 # Processamento de elementos gráficos 2D
                 elif parts[0] in ['p', 'l', 'f', 'c', 'b']:
                     elements.append((parts[0], [int(p.split('/')[0]) for p in parts[1:]]))
+
+                elif parts[0] == 'bspm':
+                    try:
+                        # O restante da linha é a string da matriz
+                        matrix_str = " ".join(parts[1:])
+                        rows_str = matrix_str.split(';')
+                        control_matrix = []
+                        for row_str in rows_str:
+                            if not row_str.strip(): continue
+                            # Usamos eval para parsear a string formatada
+                            points_in_row = list(eval(f"[{row_str}]"))
+                            control_matrix.append(points_in_row)
+                        
+                        if control_matrix:
+                            # Cria um objeto temporário que será colorido depois
+                            # A cor padrão será sobrescrita se uma diretiva 'c' for encontrada
+                            bspline_surface = BSplineSurface(control_matrix, "#00aaff") 
+                            display_file.append(bspline_surface)
+
+                    except Exception as e:
+                        print(f"Erro ao ler superfície B-Spline (bspm): {str(e)}")
 
         # Processar elementos 2D
         max_counter = 0
@@ -284,6 +305,20 @@ class DescritorOBJ:
                         p = (obj.coordinates[0][0], obj.coordinates[0][1], 0.0)
                         idx = vertex_map[p]
                         f.write(f"p {idx}\n")
+
+                    elif isinstance(obj, BSplineSurface):
+                        f.write(f"# Definição da Superfície B-Spline: {obj.name}\n")
+                        
+                        rows, cols, _ = obj.control_matrix.shape
+                        matrix_str_rows = []
+                        for i in range(rows):
+                            row_points = obj.control_matrix[i]
+                            row_str = ",".join([f"({p[0]:.4f},{p[1]:.4f},{p[2]:.4f})" for p in row_points])
+                            matrix_str_rows.append(row_str)
+
+                        matrix_full_str = ";".join(matrix_str_rows)
+                        f.write(f"bspm {matrix_full_str}\n")
+                        f.write(f"c {obj.name} {obj.color}\n\n")
 
                 f.write("\n# Fim do arquivo\n")
                 return True
